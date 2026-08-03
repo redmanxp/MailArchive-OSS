@@ -94,6 +94,7 @@ desktop.ini
 # --- MailArchive storage & runtime data ---
 /storage/
 /data/
+/backend/storage/
 uploads/
 tmp/
 temp/

@@ -92,8 +92,8 @@ Thumbs.db
 desktop.ini
 
 # --- MailArchive storage & runtime data ---
-storage/
-data/
+/storage/
+/data/
 uploads/
 tmp/
 temp/

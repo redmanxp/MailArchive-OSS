@@ -1,0 +1,1103 @@
+"""Account linking and archive use cases."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from app.config import Settings
+from app.domain.enums.providers import AccountStatus
+from app.domain.enums.roles import UserRole
+from app.domain.exceptions import AuthorizationError, DomainError, NotFoundError, ValidationError
+from app.domain.interfaces.mail_provider import ArchiveOptions, MessageQuery
+from app.domain.interfaces.repositories import IAuditLogRepository
+from app.infrastructure.persistence.repositories.mail_repos import (
+    SqlAlchemyArchivedMailRepository,
+    SqlAlchemyMailAccountRepository,
+)
+from app.infrastructure.persistence.repositories.sqlalchemy_repos import SqlAlchemyUserRepository
+from app.infrastructure.providers.factory import MailProviderFactory
+from app.infrastructure.providers.imap_provider import ImapProvider
+from app.infrastructure.providers.microsoft_graph import MicrosoftGraphProvider, MicrosoftOAuthService
+from app.infrastructure.security.fernet_cipher import CredentialCipher
+from app.infrastructure.storage.filesystem_storage import FilesystemMailStorage
+
+logger = logging.getLogger(__name__)
+
+
+class OAuthStateService:
+    def __init__(self, settings: Settings) -> None:
+        self._secret = settings.secret_key.encode("utf-8")
+
+    def issue(self, *, tenant_id: int, user_id: int) -> str:
+        payload = {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "nonce": str(uuid.uuid4()),
+            "exp": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+        }
+        raw = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+        sig = hmac.new(self._secret, raw.encode(), hashlib.sha256).hexdigest()
+        return f"{raw}.{sig}"
+
+    def verify(self, state: str) -> dict[str, Any]:
+        try:
+            raw, sig = state.rsplit(".", 1)
+        except ValueError as exc:
+            raise ValidationError("State OAuth inválido") from exc
+        expected = hmac.new(self._secret, raw.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            raise ValidationError("State OAuth inválido")
+        payload = json.loads(base64.urlsafe_b64decode(raw.encode()).decode())
+        exp = datetime.fromisoformat(payload["exp"])
+        if exp < datetime.now(UTC):
+            raise ValidationError("State OAuth expirado")
+        return payload
+
+
+class StartMicrosoftOAuthUseCase:
+    def __init__(self, settings: Settings, state_service: OAuthStateService) -> None:
+        self.settings = settings
+        self.state_service = state_service
+        self.oauth = MicrosoftOAuthService(settings)
+
+    def execute(self, *, tenant_id: int, user_id: int) -> dict:
+        if not self.settings.microsoft_client_id or not self.settings.microsoft_client_secret:
+            raise ValidationError("Microsoft OAuth no configurado en el servidor")
+        state = self.state_service.issue(tenant_id=tenant_id, user_id=user_id)
+        url = self.oauth.build_authorize_url(state)
+        logger.info("Microsoft OAuth start user_id=%s tenant_id=%s", user_id, tenant_id)
+        return {"authorize_url": url, "state": state}
+
+
+class CompleteMicrosoftOAuthUseCase:
+    def __init__(
+        self,
+        settings: Settings,
+        state_service: OAuthStateService,
+        account_repo: SqlAlchemyMailAccountRepository,
+        cipher: CredentialCipher,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.settings = settings
+        self.state_service = state_service
+        self.account_repo = account_repo
+        self.cipher = cipher
+        self.audit_repo = audit_repo
+        self.oauth = MicrosoftOAuthService(settings)
+
+    def execute(self, *, code: str, state: str) -> dict:
+        payload = self.state_service.verify(state)
+        tenant_id = int(payload["tenant_id"])
+        user_id = int(payload["user_id"])
+        tokens = self.oauth.exchange_code(code)
+        access = tokens["access_token"]
+        refresh = tokens.get("refresh_token")
+        expires_in = int(tokens.get("expires_in", 3600))
+        expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+
+        provider = MicrosoftGraphProvider(
+            settings=self.settings,
+            access_token=access,
+            refresh_token=refresh,
+            expires_at=expires_at,
+        )
+        result = provider.test_connection()
+        if not result.ok or not result.email:
+            raise ValidationError(f"No se pudo validar la cuenta Microsoft: {result.detail}")
+
+        creds = {
+            "access_token": access,
+            "refresh_token": refresh,
+            "expires_at": expires_at.isoformat(),
+            "token_type": tokens.get("token_type", "Bearer"),
+            "scope": tokens.get("scope"),
+        }
+        account = self.account_repo.upsert_microsoft(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            email=result.email,
+            display_name=result.email,
+            credentials_encrypted=self.cipher.encrypt_dict(creds),
+            config={"graph": True},
+        )
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="account.microsoft_linked",
+            resource_type="mail_account",
+            resource_id=str(account.id),
+            details={"email": account.email},
+        )
+        logger.info("Microsoft account linked id=%s email=%s", account.id, account.email)
+        return {
+            "account_id": account.id,
+            "email": account.email,
+            "provider": account.provider,
+            "status": account.status,
+        }
+
+
+class TestImapConnectionUseCase:
+    def execute(
+        self,
+        *,
+        host: str,
+        port: int,
+        ssl: bool,
+        username: str,
+        password: str,
+    ) -> dict:
+        provider = ImapProvider(host=host, port=port, ssl=ssl, username=username, password=password)
+        result = provider.test_connection()
+        return {"ok": result.ok, "detail": result.detail, "email": result.email}
+
+
+class CreateImapAccountUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        cipher: CredentialCipher,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.account_repo = account_repo
+        self.cipher = cipher
+        self.audit_repo = audit_repo
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        host: str,
+        port: int,
+        ssl: bool,
+        username: str,
+        password: str,
+        email: str | None = None,
+    ) -> dict:
+        test = ImapProvider(host=host, port=port, ssl=ssl, username=username, password=password).test_connection()
+        status = AccountStatus.CONNECTED.value if test.ok else AccountStatus.ERROR.value
+        account = self.account_repo.create_imap(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            email=email or username,
+            config={"host": host, "port": port, "ssl": ssl, "username": username},
+            credentials_encrypted=self.cipher.encrypt_dict(
+                {"username": username, "password": password, "host": host, "port": port}
+            ),
+            status=status,
+            last_error=None if test.ok else test.detail,
+        )
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="account.imap_created",
+            resource_type="mail_account",
+            resource_id=str(account.id),
+            details={"email": account.email, "ok": test.ok},
+        )
+        return {
+            "id": account.id,
+            "email": account.email,
+            "provider": account.provider,
+            "status": account.status,
+            "last_error": account.last_error,
+            "test_ok": test.ok,
+            "test_detail": test.detail,
+        }
+
+
+class ListAccountsUseCase:
+    """Usuario: solo sus cuentas. Admin/Supervisor: todas del tenant con dueño."""
+
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        user_repo: SqlAlchemyUserRepository | None = None,
+    ) -> None:
+        self.account_repo = account_repo
+        self.user_repo = user_repo
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole) -> list[dict]:
+        if role in (UserRole.ADMIN, UserRole.SUPERVISOR):
+            accounts = self.account_repo.list_for_tenant(tenant_id)
+        else:
+            accounts = self.account_repo.list_for_user(tenant_id, user_id)
+
+        owners: dict[int, Any] = {}
+        if self.user_repo is not None and role in (UserRole.ADMIN, UserRole.SUPERVISOR):
+            owners = {u.id: u for u in self.user_repo.list_by_tenant(tenant_id)}
+
+        return [
+            {
+                "id": a.id,
+                "user_id": a.user_id,
+                "provider": a.provider,
+                "email": a.email,
+                "display_name": a.display_name,
+                "status": a.status,
+                "last_sync_at": a.last_sync_at.isoformat() if a.last_sync_at else None,
+                "last_error": a.last_error,
+                "linked_at": a.linked_at.isoformat() if a.linked_at else None,
+                "owner_email": getattr(owners.get(a.user_id), "email", None),
+                "owner_name": getattr(owners.get(a.user_id), "name", None),
+                "is_mine": a.user_id == user_id,
+            }
+            for a in accounts
+        ]
+
+
+class DeleteAccountUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.account_repo = account_repo
+        self.audit_repo = audit_repo
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, account_id: int) -> None:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede eliminar esta cuenta")
+        self.account_repo.delete(tenant_id, account_id)
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="account.deleted",
+            resource_type="mail_account",
+            resource_id=str(account_id),
+        )
+
+
+class TestAccountConnectionUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+    ) -> None:
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, account_id: int) -> dict:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede probar esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        result = provider.test_connection()
+        self.account_repo.set_status(
+            tenant_id,
+            account_id,
+            AccountStatus.CONNECTED.value if result.ok else AccountStatus.ERROR.value,
+            None if result.ok else result.detail,
+        )
+        return {"ok": result.ok, "detail": result.detail, "email": result.email}
+
+
+class ListAccountFoldersUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+    ) -> None:
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, account_id: int) -> list[dict]:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede ver carpetas de esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            folders = provider.list_folders()
+            return [{"id": f.id, "name": f.name, "path": f.path, "total_items": f.total_items} for f in folders]
+        finally:
+            provider.disconnect()
+
+
+class ListAccountMessagesUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+    ) -> None:
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        folder_id: str | None = None,
+        limit: int = 50,
+        only_with_attachments: bool = False,
+    ) -> list[dict]:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede listar mensajes de esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            folder_ids = [folder_id] if folder_id else []
+            messages = provider.list_messages(
+                MessageQuery(
+                    folder_ids=folder_ids,
+                    limit=max(1, min(limit, 200)),
+                    only_with_attachments=only_with_attachments,
+                )
+            )
+            return [
+                {
+                    "id": m.id,
+                    "subject": m.subject,
+                    "from_address": m.from_address,
+                    "to_addresses": m.to_addresses,
+                    "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+                    "received_at": m.received_at.isoformat() if m.received_at else None,
+                    "size_bytes": m.size_bytes,
+                    "has_attachments": m.has_attachments,
+                    "folder": m.folder,
+                }
+                for m in messages
+            ]
+        finally:
+            provider.disconnect()
+
+
+class PreviewProviderMessageUseCase:
+    """Lee un mensaje del proveedor sin archivarlo (solo vista previa)."""
+
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+    ) -> None:
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        message_id: str,
+        folder_id: str | None = None,
+    ) -> dict:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede ver mensajes de esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            raw = provider.download_message(message_id, folder=folder_id)
+            text = raw.body_text or ""
+            html = None
+            is_html = False
+            from app.infrastructure.storage.eml_utils import extract_bodies_from_eml, extract_file_attachments_from_eml
+            from app.domain.interfaces.mail_provider import RawAttachment
+
+            try:
+                plain, html_body, preview = extract_bodies_from_eml(raw.eml_bytes)
+                text = plain or text or preview
+                html = html_body or None
+                is_html = bool(html)
+            except Exception:
+                logger.exception("No se pudo reparsear EML para preview %s", message_id)
+
+            attachments = list(raw.attachments or [])
+            if not attachments and raw.eml_bytes:
+                try:
+                    for fname, ctype, content in extract_file_attachments_from_eml(raw.eml_bytes):
+                        attachments.append(
+                            RawAttachment(
+                                filename=fname,
+                                content_type=ctype,
+                                size_bytes=len(content),
+                                content=content,
+                            )
+                        )
+                except Exception:
+                    logger.exception("No se pudieron extraer adjuntos EML %s", message_id)
+
+            return {
+                "id": raw.provider_message_id,
+                "subject": raw.subject,
+                "from_address": raw.from_address,
+                "to_addresses": raw.to_addresses,
+                "sent_at": raw.sent_at.isoformat() if raw.sent_at else None,
+                "received_at": raw.received_at.isoformat() if raw.received_at else None,
+                "size_bytes": raw.size_bytes,
+                "has_attachments": bool(attachments) or raw.has_attachments,
+                "folder": raw.folder,
+                "body_text": text or raw.body_preview,
+                "body_html": html,
+                "body_is_html": is_html,
+                "body_preview": raw.body_preview,
+                "attachments": [
+                    {
+                        "id": idx,
+                        "filename": a.filename,
+                        "content_type": a.content_type,
+                        "size_bytes": a.size_bytes or len(a.content or b""),
+                    }
+                    for idx, a in enumerate(attachments)
+                ],
+            }
+        finally:
+            provider.disconnect()
+
+    def download_attachment(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        message_id: str,
+        attachment_id: int,
+        folder_id: str | None = None,
+    ) -> dict:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede descargar adjuntos de esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            raw = provider.download_message(message_id, folder=folder_id)
+            attachments = list(raw.attachments or [])
+            if not attachments and raw.eml_bytes:
+                from app.infrastructure.storage.eml_utils import extract_file_attachments_from_eml
+                from app.domain.interfaces.mail_provider import RawAttachment
+
+                for fname, ctype, content in extract_file_attachments_from_eml(raw.eml_bytes):
+                    attachments.append(
+                        RawAttachment(
+                            filename=fname,
+                            content_type=ctype,
+                            size_bytes=len(content),
+                            content=content,
+                        )
+                    )
+            if attachment_id < 0 or attachment_id >= len(attachments):
+                raise NotFoundError("Adjunto no encontrado")
+            att = attachments[attachment_id]
+            return {
+                "filename": att.filename,
+                "content_type": att.content_type,
+                "content": att.content or b"",
+            }
+        finally:
+            provider.disconnect()
+
+
+class ArchiveSingleMessageUseCase:
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+        storage: FilesystemMailStorage,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.account_repo = account_repo
+        self.archived_repo = archived_repo
+        self.factory = factory
+        self.cipher = cipher
+        self.storage = storage
+        self.audit_repo = audit_repo
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        message_id: str,
+        folder_id: str | None = None,
+        folder_path: str | None = None,
+        delete_after_archive: bool = False,
+    ) -> dict:
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede archivar con esta cuenta")
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            raw = provider.download_message(message_id, folder=folder_id)
+            mail_id = str(uuid.uuid4())
+            stored = self.storage.save_message(
+                tenant_id=tenant_id,
+                account_id=account_id,
+                mail_id=mail_id,
+                raw=raw,
+            )
+            deleted = False
+            if delete_after_archive:
+                provider.delete_message(message_id, folder=folder_id)
+                deleted = True
+            self.archived_repo.create(
+                mail_id=mail_id,
+                tenant_id=tenant_id,
+                account_id=account_id,
+                user_id=user_id,
+                provider_message_id=raw.provider_message_id,
+                folder_path=(folder_path or raw.folder or folder_id or ""),
+                subject=raw.subject,
+                from_address=raw.from_address,
+                to_addresses=",".join(raw.to_addresses),
+                cc_addresses=",".join(raw.cc_addresses),
+                sent_at=raw.sent_at,
+                received_at=raw.received_at,
+                has_attachments=raw.has_attachments,
+                size_bytes=raw.size_bytes,
+                content_sha256=stored.content_sha256,
+                storage_path=stored.relative_dir,
+                body_preview=raw.body_preview,
+                body_text=raw.body_text,
+                attachment_names=",".join(a.filename for a in raw.attachments),
+                deleted_from_provider=deleted,
+                attachments=[
+                    {
+                        "filename": a.filename,
+                        "content_type": a.content_type,
+                        "size_bytes": a.size_bytes,
+                        "sha256": a.sha256,
+                        "storage_path": a.relative_path,
+                    }
+                    for a in stored.attachments
+                ],
+            )
+            self.audit_repo.add(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="mail.archived",
+                resource_type="archived_mail",
+                resource_id=mail_id,
+                details={"account_id": account_id, "deleted_from_provider": deleted},
+            )
+            return {
+                "id": mail_id,
+                "subject": raw.subject,
+                "size_bytes": raw.size_bytes,
+                "content_sha256": stored.content_sha256,
+                "deleted_from_provider": deleted,
+                "storage_path": stored.relative_dir,
+            }
+        finally:
+            provider.disconnect()
+
+
+class SearchArchivedMailsUseCase:
+    def __init__(self, archived_repo: SqlAlchemyArchivedMailRepository) -> None:
+        self.archived_repo = archived_repo
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        q: str | None = None,
+        account_id: int | None = None,
+        from_address: str | None = None,
+        has_attachments: bool | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        scope_user = None if role in (UserRole.ADMIN, UserRole.SUPERVISOR) else user_id
+        rows, total = self.archived_repo.search(
+            tenant_id,
+            user_id=scope_user,
+            q=q,
+            account_id=account_id,
+            from_address=from_address,
+            has_attachments=has_attachments,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
+            {
+                "id": r.id,
+                "account_id": r.account_id,
+                "subject": r.subject,
+                "from_address": r.from_address,
+                "to_addresses": r.to_addresses,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+                "has_attachments": r.has_attachments,
+                "size_bytes": r.size_bytes,
+                "archived_at": r.archived_at.isoformat() if r.archived_at else None,
+                "body_preview": r.body_preview,
+                "deleted_from_provider": r.deleted_from_provider,
+                "restored_at": r.restored_at.isoformat() if r.restored_at else None,
+            }
+            for r in rows
+        ]
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    def search_ids(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        q: str | None = None,
+        account_id: int | None = None,
+        from_address: str | None = None,
+        has_attachments: bool | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 2000,
+    ) -> dict:
+        scope_user = None if role in (UserRole.ADMIN, UserRole.SUPERVISOR) else user_id
+        ids, total = self.archived_repo.search_ids(
+            tenant_id,
+            user_id=scope_user,
+            q=q,
+            account_id=account_id,
+            from_address=from_address,
+            has_attachments=has_attachments,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+        )
+        return {"ids": ids, "total": total, "limit": limit}
+
+
+def _can_access_mail(role: UserRole, user_id: int, mail_user_id: int) -> bool:
+    if role in (UserRole.ADMIN, UserRole.SUPERVISOR):
+        return True
+    return mail_user_id == user_id
+
+
+class GetArchivedMailUseCase:
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        storage: FilesystemMailStorage | None = None,
+        account_repo: SqlAlchemyMailAccountRepository | None = None,
+        factory: MailProviderFactory | None = None,
+        cipher: CredentialCipher | None = None,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.storage = storage
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, mail_id: str) -> dict:
+        from app.infrastructure.storage.eml_utils import extract_bodies_from_eml, looks_like_graph_folder_id
+
+        row = self.archived_repo.get(tenant_id, mail_id)
+        if row is None:
+            raise NotFoundError("Correo archivado no encontrado")
+        if not _can_access_mail(role, user_id, row.user_id):
+            raise AuthorizationError("No puede ver este correo")
+        attachments = self.archived_repo.list_attachments(tenant_id, mail_id)
+
+        body_text = row.body_text or ""
+        body_html = ""
+        folder_path = row.folder_path or ""
+
+        if self.storage:
+            try:
+                eml = self.storage.read_eml_from_dir(row.storage_path)
+                plain, html, _preview = extract_bodies_from_eml(eml)
+                if plain:
+                    body_text = plain
+                if html:
+                    body_html = html
+                if not body_text and html:
+                    from app.infrastructure.storage.eml_utils import html_to_text
+
+                    body_text = html_to_text(html)
+            except Exception:
+                logger.exception("No se pudo reparsear EML mail_id=%s", mail_id)
+
+        if not body_html and body_text and "<html" in body_text.lower():
+            body_html = body_text
+
+        if looks_like_graph_folder_id(folder_path) and self.account_repo and self.factory and self.cipher:
+            try:
+                account = self.account_repo.get(tenant_id, row.account_id)
+                if account and account.provider == "microsoft365":
+
+                    def _persist(tokens: dict[str, Any]) -> None:
+                        self.account_repo.update_credentials(  # type: ignore[union-attr]
+                            tenant_id, account.id, self.cipher.encrypt_dict(tokens)  # type: ignore[union-attr]
+                        )
+
+                    provider = self.factory.create(
+                        provider=account.provider,
+                        config=account.config,
+                        credentials_encrypted=account.credentials_encrypted,
+                        on_tokens_refreshed=_persist,
+                    )
+                    provider.connect()
+                    try:
+                        if hasattr(provider, "_resolve_folder_label"):
+                            resolved = provider._resolve_folder_label(folder_path)  # noqa: SLF001
+                            if resolved and not looks_like_graph_folder_id(resolved):
+                                folder_path = resolved
+                                self.archived_repo.update_folder_path(tenant_id, mail_id, resolved)
+                    finally:
+                        provider.disconnect()
+            except Exception:
+                logger.exception("No se pudo resolver carpeta Graph mail_id=%s", mail_id)
+                folder_path = "Carpeta de origen (nombre no disponible)"
+
+        return {
+            "id": row.id,
+            "account_id": row.account_id,
+            "user_id": row.user_id,
+            "provider_message_id": row.provider_message_id,
+            "folder_path": folder_path,
+            "subject": row.subject,
+            "from_address": row.from_address,
+            "to_addresses": row.to_addresses,
+            "cc_addresses": row.cc_addresses,
+            "sent_at": row.sent_at.isoformat() if row.sent_at else None,
+            "received_at": row.received_at.isoformat() if row.received_at else None,
+            "has_attachments": row.has_attachments,
+            "size_bytes": row.size_bytes,
+            "content_sha256": row.content_sha256,
+            "body_preview": row.body_preview,
+            "body_text": body_text,
+            "body_html": body_html or None,
+            "body_is_html": bool(body_html),
+            "attachment_names": row.attachment_names,
+            "deleted_from_provider": row.deleted_from_provider,
+            "restored_at": row.restored_at.isoformat() if row.restored_at else None,
+            "archived_at": row.archived_at.isoformat() if row.archived_at else None,
+            "attachments": [
+                {
+                    "id": a.id,
+                    "filename": a.filename,
+                    "content_type": a.content_type,
+                    "size_bytes": a.size_bytes,
+                }
+                for a in attachments
+            ],
+        }
+
+
+class DownloadArchivedEmlUseCase:
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        storage: FilesystemMailStorage,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.storage = storage
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, mail_id: str) -> tuple[bytes, str]:
+        row = self.archived_repo.get(tenant_id, mail_id)
+        if row is None:
+            raise NotFoundError("Correo archivado no encontrado")
+        if not _can_access_mail(role, user_id, row.user_id):
+            raise AuthorizationError("No puede descargar este correo")
+        try:
+            data = self.storage.read_eml_from_dir(row.storage_path)
+        except FileNotFoundError as exc:
+            raise NotFoundError(str(exc)) from exc
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in (row.subject or "mail")[:80])
+        filename = f"{safe or 'mail'}.eml"
+        return data, filename
+
+
+class DownloadArchivedAttachmentUseCase:
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        storage: FilesystemMailStorage,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.storage = storage
+
+    def execute(
+        self, *, tenant_id: int, user_id: int, role: UserRole, mail_id: str, attachment_id: int
+    ) -> tuple[bytes, str, str]:
+        row = self.archived_repo.get(tenant_id, mail_id)
+        if row is None:
+            raise NotFoundError("Correo archivado no encontrado")
+        if not _can_access_mail(role, user_id, row.user_id):
+            raise AuthorizationError("No puede descargar este adjunto")
+        att = self.archived_repo.get_attachment(tenant_id, mail_id, attachment_id)
+        if att is None:
+            raise NotFoundError("Adjunto no encontrado")
+        try:
+            data = self.storage.read_attachment(att.storage_path)
+        except FileNotFoundError as exc:
+            raise NotFoundError("Archivo de adjunto no encontrado en storage") from exc
+        return data, att.filename, att.content_type or "application/octet-stream"
+
+
+class RestoreArchivedMailUseCase:
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        account_repo: SqlAlchemyMailAccountRepository,
+        factory: MailProviderFactory,
+        cipher: CredentialCipher,
+        storage: FilesystemMailStorage,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.account_repo = account_repo
+        self.factory = factory
+        self.cipher = cipher
+        self.storage = storage
+        self.audit_repo = audit_repo
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        mail_id: str,
+        folder_id: str | None = None,
+    ) -> dict:
+        if role == UserRole.READONLY:
+            raise AuthorizationError("Rol solo lectura: no puede restaurar")
+        row = self.archived_repo.get(tenant_id, mail_id)
+        if row is None:
+            raise NotFoundError("Correo archivado no encontrado")
+        if not _can_access_mail(role, user_id, row.user_id):
+            raise AuthorizationError("No puede restaurar este correo")
+
+        account = self.account_repo.get(tenant_id, row.account_id)
+        if account is None:
+            raise NotFoundError("La cuenta original ya no existe; vinculá la cuenta nuevamente")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede restaurar con esta cuenta")
+
+        try:
+            eml = self.storage.read_eml_from_dir(row.storage_path)
+        except FileNotFoundError as exc:
+            raise NotFoundError(str(exc)) from exc
+
+        def _persist(tokens: dict[str, Any]) -> None:
+            self.account_repo.update_credentials(tenant_id, account.id, self.cipher.encrypt_dict(tokens))
+
+        provider = self.factory.create(
+            provider=account.provider,
+            config=account.config,
+            credentials_encrypted=account.credentials_encrypted,
+            on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+        )
+        provider.connect()
+        try:
+            # Always restore into provider MailArchive folder (create if needed).
+            # Optional folder_id only if caller explicitly overrides.
+            result = provider.restore_message(eml, folder=folder_id)
+            storage_path = row.storage_path
+            self.audit_repo.add(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="mail.restored",
+                resource_type="archived_mail",
+                resource_id=mail_id,
+                details={
+                    "account_id": account.id,
+                    "provider_message_id": result.provider_message_id,
+                    "folder": result.folder,
+                    "removed_from_archive": True,
+                },
+            )
+            # Remove from local archive after successful restore
+            self.archived_repo.delete_mail(tenant_id, mail_id)
+            try:
+                self.storage.delete_mail_dir(storage_path)
+            except Exception:
+                logger.exception("No se pudo borrar storage de %s", storage_path)
+            return {
+                "id": mail_id,
+                "provider_message_id": result.provider_message_id,
+                "folder": result.folder,
+                "account_id": account.id,
+            }
+        except Exception as exc:
+            logger.exception("Restore failed mail_id=%s", mail_id)
+            raise ValidationError(f"Error al restaurar: {exc}") from exc
+        finally:
+            provider.disconnect()
+
+
+class BulkDownloadArchivedMailsUseCase:
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        storage: FilesystemMailStorage,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.storage = storage
+
+    def execute(
+        self, *, tenant_id: int, user_id: int, role: UserRole, mail_ids: list[str]
+    ) -> tuple[bytes, str]:
+        import io
+        import zipfile
+        from datetime import datetime as dt
+
+        if not mail_ids:
+            raise ValidationError("No hay correos seleccionados")
+        if len(mail_ids) > 500:
+            raise ValidationError("Máximo 500 correos por descarga")
+
+        buf = io.BytesIO()
+        added = 0
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            used_names: set[str] = set()
+            for mail_id in mail_ids:
+                row = self.archived_repo.get(tenant_id, mail_id)
+                if row is None or not _can_access_mail(role, user_id, row.user_id):
+                    continue
+                try:
+                    data = self.storage.read_eml_from_dir(row.storage_path)
+                except FileNotFoundError:
+                    logger.warning("EML missing for bulk download %s", mail_id)
+                    continue
+                safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in (row.subject or "mail")[:60])
+                name = f"{safe or 'mail'}-{mail_id[:8]}.eml"
+                if name in used_names:
+                    name = f"{mail_id}.eml"
+                used_names.add(name)
+                zf.writestr(name, data)
+                added += 1
+        if added == 0:
+            raise NotFoundError("No se pudo armar el ZIP (sin archivos accesibles)")
+        stamp = dt.now().strftime("%Y%m%d-%H%M")
+        return buf.getvalue(), f"archivados-{stamp}.zip"
+
+
+class BulkRestoreArchivedMailsUseCase:
+    def __init__(self, restore_uc: RestoreArchivedMailUseCase) -> None:
+        self.restore_uc = restore_uc
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        mail_ids: list[str],
+    ) -> dict:
+        if role == UserRole.READONLY:
+            raise AuthorizationError("Rol solo lectura: no puede restaurar")
+        if not mail_ids:
+            raise ValidationError("No hay correos seleccionados")
+        if len(mail_ids) > 200:
+            raise ValidationError("Máximo 200 correos por restauración masiva")
+
+        restored = 0
+        failed: list[dict] = []
+        for mail_id in mail_ids:
+            try:
+                self.restore_uc.execute(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    role=role,
+                    mail_id=mail_id,
+                )
+                restored += 1
+            except DomainError as exc:
+                failed.append({"id": mail_id, "error": str(exc)})
+            except Exception as exc:
+                logger.exception("Bulk restore failed %s", mail_id)
+                failed.append({"id": mail_id, "error": str(exc)})
+        return {"restored": restored, "failed": failed, "requested": len(mail_ids)}

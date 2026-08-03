@@ -1,0 +1,25 @@
+[Unit]
+Description=MailArchive Frontend (Vite preview — build de producción)
+After=network-online.target mnt-almacen.mount mailarchive-api.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/almacen/apps/produccion/m365_archivo
+
+[Service]
+Type=simple
+User=pablo
+Group=pablo
+WorkingDirectory=/mnt/almacen/apps/produccion/m365_archivo/frontend
+Environment=NODE_ENV=production
+# Sirve frontend/dist (nginx no puede leer /mnt/almacen → proxy a este puerto)
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 5175 --strictPort
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mailarchive-frontend
+
+[Install]
+WantedBy=multi-user.target

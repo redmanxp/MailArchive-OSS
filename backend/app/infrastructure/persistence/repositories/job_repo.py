@@ -1,0 +1,95 @@
+"""Archive job repository."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.infrastructure.persistence.models import ArchiveJobModel
+
+
+class SqlAlchemyArchiveJobRepository:
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def create(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        account_id: int,
+        criteria: dict[str, Any],
+        delete_after_archive: bool,
+        total_messages: int,
+        total_bytes: int,
+        status: str = "pending",
+    ) -> ArchiveJobModel:
+        row = ArchiveJobModel(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            account_id=account_id,
+            status=status,
+            criteria=criteria,
+            delete_after_archive=delete_after_archive,
+            total_messages=total_messages,
+            total_bytes=total_bytes,
+        )
+        self._db.add(row)
+        self._db.flush()
+        return row
+
+    def get(self, tenant_id: int, job_id: int) -> ArchiveJobModel | None:
+        return self._db.scalar(
+            select(ArchiveJobModel).where(
+                ArchiveJobModel.tenant_id == tenant_id, ArchiveJobModel.id == job_id
+            )
+        )
+
+    def list_for_tenant(self, tenant_id: int, *, user_id: int | None = None, limit: int = 50) -> list[ArchiveJobModel]:
+        stmt = select(ArchiveJobModel).where(ArchiveJobModel.tenant_id == tenant_id)
+        if user_id is not None:
+            stmt = stmt.where(ArchiveJobModel.user_id == user_id)
+        stmt = stmt.order_by(ArchiveJobModel.id.desc()).limit(limit)
+        return list(self._db.scalars(stmt).all())
+
+    def update_progress(
+        self,
+        tenant_id: int,
+        job_id: int,
+        *,
+        status: str | None = None,
+        processed: int | None = None,
+        archived: int | None = None,
+        skipped: int | None = None,
+        failed: int | None = None,
+        archived_bytes: int | None = None,
+        error_message: str | None = None,
+        started: bool = False,
+        finished: bool = False,
+    ) -> ArchiveJobModel | None:
+        row = self.get(tenant_id, job_id)
+        if row is None:
+            return None
+        if status is not None:
+            row.status = status
+        if processed is not None:
+            row.processed_messages = processed
+        if archived is not None:
+            row.archived_messages = archived
+        if skipped is not None:
+            row.skipped_messages = skipped
+        if failed is not None:
+            row.failed_messages = failed
+        if archived_bytes is not None:
+            row.archived_bytes = archived_bytes
+        if error_message is not None:
+            row.error_message = error_message
+        if started and row.started_at is None:
+            row.started_at = datetime.now(UTC)
+        if finished:
+            row.finished_at = datetime.now(UTC)
+        self._db.flush()
+        return row

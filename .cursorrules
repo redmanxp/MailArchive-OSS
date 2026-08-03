@@ -1,0 +1,133 @@
+# MailArchive — Reglas del Proyecto
+
+## Qué es
+Sistema de archivado de correos electrónicos para empresas (nombre: MailArchive).
+Workspace: m365_archivo. Destinado inicialmente a MAPS, diseñado multi-tenant desde el día 1.
+
+## Stack
+### Backend
+- Python 3.11, FastAPI, SQLAlchemy, Alembic, MySQL
+- JWT + Refresh Tokens, Argon2
+- Microsoft Graph SDK, IMAPClient, Pydantic
+- Versiones fijas en requirements.txt
+
+### Frontend
+- React, Vite, TypeScript, Material UI, React Router, Axios
+
+### Almacenamiento de correos
+- Por mensaje: `mail.eml` + `adjuntos/` + `metadata.json`
+- Hash SHA256
+- Índices en MySQL (FullText preparado)
+- NO usar PST
+- Storage local (filesystem). Path: `{storage_root}/{tenant_id}/{account_id}/{yyyy}/{mm}/{mail_id}/`
+
+## Arquitectura (obligatoria)
+- Clean Architecture + SOLID + Repository Pattern + Dependency Injection
+- Capas: API | Application (use cases) | Domain | Infrastructure
+- Domain NUNCA importa FastAPI, SQLAlchemy, Graph ni IMAP
+- Todo acceso a correo vía interfaz `MailProvider`
+- Implementaciones: MicrosoftGraphProvider, ImapProvider, GmailProvider (futuro)
+- Código tipado; documentar módulos
+
+## Multi-tenant
+- `tenant_id` en todas las tablas de negocio desde el inicio
+- Aislamiento total: usuarios, cuentas, mails, jobs, logs, settings
+- Install (v1): un solo tenant (MAPS). Sin UI multi-tenant SaaS aún
+- JWT incluye `tenant_id`, `user_id`, `role`
+- Queries siempre filtradas por `tenant_id`
+
+## Autenticación y usuarios
+- Usuarios propios de la app
+- Primer admin se crea en la instalación
+- Campos user: nombre, email, password_hash, rol, estado, must_change_password, last_login
+- Primer login / invite: debe definir o cambiar contraseña (`must_change_password`)
+
+## Acceso de usuarios
+- Alta pública desde login (botón arriba a la derecha): nombre + email (+ tenant) → link invite 48h
+- Si el email ya existe → enviar link de reset (no duplicar usuario)
+- Página del link: `/set-password?token=…` (JWT firmado; se invalida al cambiar password)
+- Admin también crea usuarios sin password en claro: envía el mismo enlace por email
+- Perfil en `/app/profile` (click en datos del sidebar): editar nombre + cambiar contraseña
+- Nunca enviar password en claro por email
+
+## Roles (RBAC interno — NUNCA permisos de Microsoft)
+- Administrador
+- Supervisor: ve TODOS los correos archivados del tenant
+- Usuario
+- Solo lectura
+
+## Cuentas vinculadas
+- Cada usuario vincula solo las suyas (múltiples OK: M365 y/o IMAP)
+- Admin/Supervisor: ven todas las cuentas del tenant con dueño
+- UI: vincular vía modal (+) — no formularios fijos en /accounts
+- OAuth M365: prompt=select_account; cada vínculo hace el flujo completo de credenciales (aunque el mismo buzón ya esté vinculado a otro usuario)
+- Microsoft 365: OAuth + tokens cifrados; NUNCA guardar password Microsoft
+- IMAP: host, puerto, SSL, usuario, password cifrada; botón Probar conexión
+
+## Archivado
+- Criterios: manual, rango fechas, anteriores a fecha, tamaño, con adjuntos, carpetas
+- Simulación previa: cantidad, espacio ocupado, espacio a liberar
+- Progreso durante el job
+- Borrar del proveedor: SIEMPRE preguntar al usuario (nunca por defecto silencioso)
+- Restauración al proveedor correspondiente vía MailProvider
+
+## Identificadores (decisión técnica)
+- BIGINT autoincrement: tenants, users, accounts, jobs, audit, attachments metadata rows
+- UUID: archived_mails (id público/estable para storage y API de mails)
+- Explicación: BIGINT es simple y eficiente para tablas operativas; UUID evita exponer secuencias en URLs de correos y facilita paths de archivos únicos
+
+## Seguridad (NO ROMPER / NO SUBIR SECRETOS)
+- NUNCA commitear ni subir a GitHub: `.env`, credenciales, tokens, private keys, certificados, dumps con datos reales
+- Solo versionar `.env.example` con placeholders (sin valores reales)
+- Secretos solo por variables de entorno / secret manager
+- Cifrar en reposo: tokens OAuth, passwords IMAP
+- RBAC, JWT, refresh tokens, Argon2, rate limiting, audit logs, CSRF cuando corresponda
+- No hardcodear API keys, client secrets, connection strings con password
+
+## Calidad y cambios
+- Cambio mínimo: no refactorizar ni “mejorar” código que funciona sin pedido explícito
+- No eliminar logs de debug sin preguntar
+- Logs informativos en funciones críticas
+- try/except + timeouts en llamadas HTTP/APIs externas
+- No crear tests nuevos sin preguntar
+- No borrar/renombrar archivos sin confirmación
+- Antes de cambios que puedan romper funcionalidad: confirmar impacto
+- No escribir código de aplicación hasta aprobación explícita de la fase correspondiente
+
+## Idioma
+- Responder al usuario en español
+- Código y nombres técnicos en inglés (módulos, clases, endpoints) salvo textos de UI en español
+
+## Puertos locales (evitar conflicto con otros servicios en archivos.newlici.com)
+- API: 18100
+- Frontend Vite: 5175
+- MySQL Docker (opcional): host 3307 → container 3306
+- Sin MySQL/Docker: `DB_ENGINE=sqlite` para desarrollo/pruebas Fase 0+
+
+## Arranque producción (systemd usuario — como vpn_admin / centinela)
+```
+cd frontend && npm run build
+bash deploy/install-systemd-user.sh
+# linger tras reboot: sudo loginctl enable-linger pablo
+```
+- API: `mailarchive-api` → uvicorn :18100 (1 worker; jobs en threads in-memory)
+- UI: `mailarchive-frontend` → `vite preview` de `frontend/dist` :5175 (nginx no lee `/mnt/almacen`)
+- Nginx `archivos.newlici.com` proxy `/api`→18100 y `/`→5175
+- Al arrancar la API, jobs `pending`/`running` huérfanos se marcan `failed`
+
+## Arranque backend (dev)
+```
+cd backend && source .venv/bin/activate && export PYTHONPATH=$PWD
+uvicorn app.main:app --host 0.0.0.0 --port 18100
+```
+Venv con `uv venv` (python3-venv del sistema no disponible sin sudo).
+
+## Funcionalidades críticas (NO ROMPER)
+- Aislamiento por `tenant_id`
+- Flujo must_change_password en primer login / invite
+- Alta/reset por enlace temporal (sin password en el mail)
+- Perfil propio editable desde el sidebar (`/app/profile`)
+- Contrato MailProvider desacoplado del dominio
+- Estructura de almacenamiento EML (no PST)
+- Confirmación explícita antes de borrar correo del proveedor
+- Nunca persistir password de Microsoft

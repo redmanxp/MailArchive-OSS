@@ -126,3 +126,4 @@ test-results/
 
 # --- Cursor / agent local (optional local state) ---
 .cursor/mcp.json
+*.tsbuildinfo

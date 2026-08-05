@@ -49,9 +49,21 @@ npm install
 npm run dev   # http://localhost:5175
 ```
 
+Al arrancar, la API aplica migraciones Alembic (`0001` + `0002`) y crea tablas faltantes si hace falta.
+
 Prueba API: `bash scripts/test_phase0.sh http://127.0.0.1:18100`
 
-**Nota DB:** sin Docker/MySQL local se usa `DB_ENGINE=sqlite`. Con Docker: `docker compose up -d` y `DB_ENGINE=mysql` (puerto host 3307).
+**Nota DB:** sin Docker/MySQL local se usa `DB_ENGINE=sqlite`.
+## Docker (API + UI)
+
+```bash
+cp .env.example .env   # completar SECRET_KEY, JWT, Fernet, etc.
+docker compose up --build
+# UI:  http://localhost:8080
+# API: http://localhost:18100/health
+```
+
+MySQL opcional: `docker compose --profile mysql up --build` y en `.env` `DB_ENGINE=mysql` (sin `DATABASE_URL` sqlite).
 
 ## Estructura
 

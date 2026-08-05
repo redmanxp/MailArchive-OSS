@@ -40,8 +40,16 @@ app.include_router(api_router)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # Phase 0: create tables (Alembic also available). Safe for sqlite/mysql empty DB.
-    Base.metadata.create_all(bind=engine)
+    from app.infrastructure.persistence.migrate import run_migrations
+
+    # Prefer Alembic; create_all remains a safety net for empty local DBs.
+    try:
+        run_migrations(engine)
+    except Exception:
+        logger.warning("Falling back to metadata.create_all after migration error")
+        Base.metadata.create_all(bind=engine)
+    else:
+        Base.metadata.create_all(bind=engine)
     _reclaim_orphaned_archive_jobs()
     logger.info(
         "MailArchive started env=%s db_engine=%s port=%s",

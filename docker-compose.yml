@@ -1,9 +1,71 @@
-# MailArchive local stack
-# Requiere Docker. MySQL para producción/dev alineado al diseño.
-# Si no hay Docker, usar DB_ENGINE=sqlite (ver .env.example).
+# MailArchive — local / OSS stack
+#
+# SQLite (default, no external DB):
+#   docker compose up --build
+#   UI: http://localhost:8080
+#
+# MySQL:
+#   docker compose --profile mysql up --build
+#   (set DB_ENGINE=mysql and MYSQL_* in .env)
 
 services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mailarchive-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: "18100"
+      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/mailarchive.db}
+      STORAGE_ROOT: /storage
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      API_URL: ${API_URL:-http://localhost:8080}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-http://localhost:8080/api/v1/accounts/microsoft/oauth/callback}
+      FEATURE_PUBLIC_REGISTER: ${FEATURE_PUBLIC_REGISTER:-false}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-mailarchive}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-db-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mailarchive}
+    volumes:
+      - mailarchive_data:/data
+      - mailarchive_storage:/storage
+    ports:
+      - "18100:18100"
+    depends_on:
+      mysql:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18100/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mailarchive-frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
   mysql:
+    profiles: ["mysql"]
     image: mysql:8.4
     container_name: mailarchive-mysql
     restart: unless-stopped
@@ -24,4 +86,6 @@ services:
       retries: 10
 
 volumes:
+  mailarchive_data:
+  mailarchive_storage:
   mailarchive_mysql_data:

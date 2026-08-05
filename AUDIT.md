@@ -5,7 +5,8 @@
 **Regla de esta fase:** solo auditoría; **sin cambios de código**.  
 **Veredicto:** producto interno maduro y usable; **aún no listo para release OSS público** sin licencia, scrub de identidad/cliente, rate limiting, migraciones reproducibles, Docker app completo y worker de jobs durable.
 
-> **Update (paso 1 crítico):** se añadieron MIT LICENSE, scrub de identidad en código/docs/deploy, `FEATURE_PUBLIC_REGISTER=false` por default y rate limiting en login/register/install. Pendiente: Alembic completo + Docker app (paso 2).
+> **Update (paso 1 crítico):** MIT LICENSE, scrub, `FEATURE_PUBLIC_REGISTER=false`, rate limiting.  
+> **Update (paso 2 crítico):** Alembic `0002_mail_archive` (accounts/mails/attachments/jobs) + `docker compose` con API+frontend (SQLite default; MySQL vía profile).
 
 Clasificación usada en hallazgos:
 

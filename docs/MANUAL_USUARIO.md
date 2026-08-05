@@ -1,17 +1,17 @@
 # MailArchive — Manual de usuario
 
-URL: https://archivos.newlici.com  
-(Si el navegador avisa “certificado no seguro”, es normal por ahora: aceptar y continuar en la red interna.)
+URL: la que configure tu administrador (por ejemplo `https://mailarchive.example.com`).
 
 ---
 
 ## 1. Primer acceso
 
-1. Entrá a la URL e iniciá sesión con tu **email** y la **organización** (tenant), por ejemplo `obrasociales`.
-2. Si todavía no tenés usuario: en la pantalla de login, arriba a la derecha, **Crear usuario**.
+1. Entrá a la URL e iniciá sesión con tu **email** y la **organización** (tenant / slug).
+2. Si el registro público está habilitado: en login, arriba a la derecha, **Crear usuario**.
    - Completá nombre, email y organización.
    - Te llega un correo con un enlace (válido 48 horas) para **definir tu contraseña**.
-3. Si olvidaste la clave, usá otra vez **Crear usuario** con el mismo email: te llega un enlace de restablecimiento (no se duplica la cuenta).
+3. Si olvidaste la clave y el registro público está activo, usá otra vez **Crear usuario** con el mismo email: te llega un enlace de restablecimiento (no se duplica la cuenta).
+4. Si el registro público está desactivado, pedí el alta a un administrador.
 
 ---
 

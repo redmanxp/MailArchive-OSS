@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -10,6 +10,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { getInstallStatus } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
 export default function LoginPage() {
@@ -17,16 +18,23 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [tenantSlug, setTenantSlug] = useState("obrasociales");
+  const [tenantSlug, setTenantSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [publicRegister, setPublicRegister] = useState(false);
+
+  useEffect(() => {
+    getInstallStatus()
+      .then((s) => setPublicRegister(!!s.public_register_enabled))
+      .catch(() => setPublicRegister(false));
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const user = await login(email, password, tenantSlug);
+      const user = await login(email, password, tenantSlug || undefined);
       navigate(user.must_change_password ? "/change-password" : "/app");
     } catch (err: unknown) {
       const msg =
@@ -51,24 +59,26 @@ export default function LoginPage() {
         py: 4,
       }}
     >
-      <Button
-        component={RouterLink}
-        to="/register"
-        variant="contained"
-        color="secondary"
-        sx={{
-          position: "absolute",
-          top: 16,
-          right: 16,
-          textTransform: "none",
-          bgcolor: "rgba(255,255,255,0.95)",
-          color: "primary.main",
-          boxShadow: 1,
-          "&:hover": { bgcolor: "#fff" },
-        }}
-      >
-        Crear usuario
-      </Button>
+      {publicRegister && (
+        <Button
+          component={RouterLink}
+          to="/register"
+          variant="contained"
+          color="secondary"
+          sx={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            textTransform: "none",
+            bgcolor: "rgba(255,255,255,0.95)",
+            color: "primary.main",
+            boxShadow: 1,
+            "&:hover": { bgcolor: "#fff" },
+          }}
+        >
+          Crear usuario
+        </Button>
+      )}
       <Container maxWidth="xs">
         <Paper elevation={0} sx={{ p: 4, border: "1px solid #d5dee5" }}>
           <Typography variant="h4" gutterBottom>
@@ -87,7 +97,7 @@ export default function LoginPage() {
               label="Tenant"
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value)}
-              helperText="Organización (ej. obrasociales)"
+              helperText="Organización (slug, ej. acme)"
             />
             <TextField
               label="Email"

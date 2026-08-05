@@ -1,9 +1,11 @@
 # AUDIT.md — MailArchive Open Source Readiness
 
 **Fecha:** 2026-08-05  
-**Alcance:** `/mnt/almacen/apps/produccion/m365_archivo` (backend + frontend + Docker + deploy)  
+**Alcance:** copia de producción auditada al inicio de la preparación OSS  
 **Regla de esta fase:** solo auditoría; **sin cambios de código**.  
 **Veredicto:** producto interno maduro y usable; **aún no listo para release OSS público** sin licencia, scrub de identidad/cliente, rate limiting, migraciones reproducibles, Docker app completo y worker de jobs durable.
+
+> **Update (paso 1 crítico):** se añadieron MIT LICENSE, scrub de identidad en código/docs/deploy, `FEATURE_PUBLIC_REGISTER=false` por default y rate limiting en login/register/install. Pendiente: Alembic completo + Docker app (paso 2).
 
 Clasificación usada en hallazgos:
 

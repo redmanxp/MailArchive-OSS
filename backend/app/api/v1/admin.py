@@ -75,7 +75,7 @@ def _settings_repo(db: Session, settings: Settings) -> SqlAlchemyTenantSettingsR
 
 def _tenant_slug(db: Session, tenant_id: int) -> str:
     row = db.get(TenantModel, tenant_id)
-    return row.slug if row else "obrasociales"
+    return row.slug if row else "acme"
 
 
 @router.get("/users", response_model=list[UserAdminPublic])

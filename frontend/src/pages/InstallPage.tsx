@@ -16,11 +16,11 @@ type Props = {
 };
 
 export default function InstallPage({ onInstalled }: Props) {
-  const [tenantName, setTenantName] = useState("Obrasociales");
-  const [tenantSlug, setTenantSlug] = useState("obrasociales");
-  const [adminName, setAdminName] = useState("Administrador");
-  const [adminEmail, setAdminEmail] = useState("admin@obrasociales.com.ar");
-  const [adminPassword, setAdminPassword] = useState("TempPass123!");
+  const [tenantName, setTenantName] = useState("Acme");
+  const [tenantSlug, setTenantSlug] = useState("acme");
+  const [adminName, setAdminName] = useState("Administrator");
+  const [adminEmail, setAdminEmail] = useState("admin@example.com");
+  const [adminPassword, setAdminPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -64,7 +64,7 @@ export default function InstallPage({ onInstalled }: Props) {
             MailArchive
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Instalación inicial — tenant MAPS y primer administrador.
+            Instalación inicial — organización y primer administrador.
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -83,6 +83,7 @@ export default function InstallPage({ onInstalled }: Props) {
               onChange={(e) => setAdminPassword(e.target.value)}
               helperText="Se pedirá cambio en el primer login."
               required
+              autoComplete="new-password"
             />
             <Button type="submit" variant="contained" size="large" disabled={loading}>
               {loading ? "Instalando…" : "Instalar"}

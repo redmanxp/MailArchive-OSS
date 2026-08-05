@@ -20,24 +20,26 @@ if [[ ! -f "${ROOT}/frontend/dist/index.html" ]]; then
   (cd "${ROOT}/frontend" && npm run build)
 fi
 
-cp "${ROOT}/deploy/mailarchive-api.service" "${USER_UNIT_DIR}/"
-cp "${ROOT}/deploy/mailarchive-frontend.service" "${USER_UNIT_DIR}/"
+render_unit() {
+  local src="$1" dest="$2"
+  sed \
+    -e "s|__MAILARCHIVE_ROOT__|${ROOT}|g" \
+    -e "s|__MAILARCHIVE_USER__|$(whoami)|g" \
+    -e '/^User=/d' \
+    -e '/^Group=/d' \
+    -e 's/WantedBy=multi-user.target/WantedBy=default.target/' \
+    "$src" > "$dest"
+}
 
-# Servicios de usuario: corren como el usuario logueado
-sed -i \
-  -e '/^User=/d' \
-  -e '/^Group=/d' \
-  -e '/RequiresMountsFor=/d' \
-  -e 's/WantedBy=multi-user.target/WantedBy=default.target/' \
-  "${USER_UNIT_DIR}/mailarchive-api.service" \
-  "${USER_UNIT_DIR}/mailarchive-frontend.service"
+render_unit "${ROOT}/deploy/mailarchive-api.service" "${USER_UNIT_DIR}/mailarchive-api.service"
+render_unit "${ROOT}/deploy/mailarchive-frontend.service" "${USER_UNIT_DIR}/mailarchive-frontend.service"
 
 systemctl --user daemon-reload
 systemctl --user enable mailarchive-api.service mailarchive-frontend.service
 systemctl --user restart mailarchive-api.service mailarchive-frontend.service
 
 sleep 2
-echo "[ok] Servicios de producción (usuario) levantados"
+echo "[ok] Servicios de usuario levantados"
 systemctl --user --no-pager --no-legend status mailarchive-api.service mailarchive-frontend.service || true
 curl -sf http://127.0.0.1:18100/health && echo || echo "[warn] API aún no responde"
 curl -sf -o /dev/null -w "frontend HTTP %{http_code}\n" http://127.0.0.1:5175/ || true

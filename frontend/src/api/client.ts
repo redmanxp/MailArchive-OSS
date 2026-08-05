@@ -46,7 +46,9 @@ export type SmtpSettings = {
 };
 
 export async function getInstallStatus() {
-  const { data } = await api.get<{ installed: boolean }>("/api/v1/install/status");
+  const { data } = await api.get<{ installed: boolean; public_register_enabled?: boolean }>(
+    "/api/v1/install/status"
+  );
   return data;
 }
 

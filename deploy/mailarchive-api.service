@@ -1,19 +1,18 @@
 [Unit]
 Description=MailArchive API (FastAPI / uvicorn)
-After=network-online.target mnt-almacen.mount
+After=network-online.target
 Wants=network-online.target
-RequiresMountsFor=/mnt/almacen/apps/produccion/m365_archivo
 
 [Service]
 Type=simple
-User=pablo
-Group=pablo
-WorkingDirectory=/mnt/almacen/apps/produccion/m365_archivo/backend
-EnvironmentFile=-/mnt/almacen/apps/produccion/m365_archivo/.env
+User=__MAILARCHIVE_USER__
+Group=__MAILARCHIVE_USER__
+WorkingDirectory=__MAILARCHIVE_ROOT__/backend
+EnvironmentFile=-__MAILARCHIVE_ROOT__/.env
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/mnt/almacen/apps/produccion/m365_archivo/backend
-# Un solo worker: los archive jobs viven en threads in-memory del proceso
-ExecStart=/mnt/almacen/apps/produccion/m365_archivo/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 18100 --workers 1
+Environment=PYTHONPATH=__MAILARCHIVE_ROOT__/backend
+# Single worker: archive jobs live in in-memory threads of this process
+ExecStart=__MAILARCHIVE_ROOT__/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 18100 --workers 1
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300

@@ -5,10 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_USER="${SUDO_USER:-${MAILARCHIVE_USER:-mailarchive}}"
 
 if [[ ! -d "${ROOT}/backend" || ! -d "${ROOT}/frontend" ]]; then
-  echo "[error] Ejecutá desde la raíz del proyecto, no desde frontend/:" >&2
-  echo "  cd /mnt/almacen/apps/produccion/m365_archivo" >&2
+  echo "[error] Ejecutá desde la raíz del proyecto:" >&2
+  echo "  cd /path/to/mailarchive" >&2
   echo "  sudo bash deploy/install-systemd.sh" >&2
   exit 1
 fi
@@ -35,17 +36,30 @@ fi
 
 if [[ ! -f "${ROOT}/frontend/dist/index.html" ]]; then
   echo "[info] Build frontend…"
-  sudo -u pablo bash -lc "cd '${ROOT}/frontend' && npm run build"
+  if id "$RUN_USER" &>/dev/null; then
+    sudo -u "$RUN_USER" bash -lc "cd '${ROOT}/frontend' && npm run build"
+  else
+    (cd "${ROOT}/frontend" && npm run build)
+  fi
 fi
 
-install -m 0644 "${ROOT}/deploy/mailarchive-api.service" /etc/systemd/system/
-install -m 0644 "${ROOT}/deploy/mailarchive-frontend.service" /etc/systemd/system/
+render_unit() {
+  local src="$1" dest="$2"
+  sed \
+    -e "s|__MAILARCHIVE_ROOT__|${ROOT}|g" \
+    -e "s|__MAILARCHIVE_USER__|${RUN_USER}|g" \
+    "$src" > "$dest"
+}
+
+render_unit "${ROOT}/deploy/mailarchive-api.service" /etc/systemd/system/mailarchive-api.service
+render_unit "${ROOT}/deploy/mailarchive-frontend.service" /etc/systemd/system/mailarchive-frontend.service
+chmod 0644 /etc/systemd/system/mailarchive-api.service /etc/systemd/system/mailarchive-frontend.service
 
 systemctl daemon-reload
 systemctl enable mailarchive-api.service mailarchive-frontend.service
 systemctl restart mailarchive-api.service mailarchive-frontend.service
 
-echo "[ok] mailarchive-api + mailarchive-frontend (preview prod) instalados"
+echo "[ok] mailarchive-api + mailarchive-frontend instalados (user=${RUN_USER})"
 systemctl --no-pager status mailarchive-api.service mailarchive-frontend.service || true
 echo ""
 echo "Logs:  sudo journalctl -u mailarchive-api -f"

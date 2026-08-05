@@ -71,7 +71,7 @@ export default function SettingsPage() {
             label="Servidor SMTP"
             value={settings.host}
             onChange={(e) => setSettings({ ...settings, host: e.target.value })}
-            placeholder="mail.newlicisalud.com.ar"
+            placeholder="mail.example.com"
           />
           <TextField
             label="Puerto"

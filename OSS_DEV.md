@@ -2,10 +2,10 @@
 
 This tree is for development and Open Source prep.
 
-**Production (do not break):** `/mnt/almacen/apps/produccion/m365_archivo`  
-Ports prod: API `18100`, UI `5175` (systemd).
+Keep production deployments on a separate path and never point this `.env`
+at a production database or `STORAGE_ROOT`.
 
-**This copy:**
+**This copy (suggested ports):**
 - API: `127.0.0.1:18101`
 - UI: `127.0.0.1:5176`
 - DB: SQLite under `backend/data/` (see `.env`)
@@ -29,5 +29,3 @@ cd frontend
 npm install
 npm run dev -- --host 127.0.0.1 --port 5176
 ```
-
-Never point this `.env` at production MySQL or production `STORAGE_ROOT`.

@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class InstallStatusResponse(BaseModel):
     installed: bool
+    public_register_enabled: bool = False
 
 
 class InstallRequest(BaseModel):
@@ -73,7 +74,7 @@ class MessageResponse(BaseModel):
 class SelfRegisterRequest(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     email: EmailStr
-    tenant_slug: str | None = Field(default="obrasociales", max_length=100)
+    tenant_slug: str | None = Field(default=None, max_length=100)
 
 
 class SelfRegisterResponse(BaseModel):

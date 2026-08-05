@@ -2,7 +2,7 @@
 # Prueba end-to-end Fase 0 (API)
 set -euo pipefail
 BASE="${1:-http://127.0.0.1:18100}"
-EMAIL="admin@maps.example.com"
+EMAIL="admin@example.com"
 PASS_TEMP="TempPass123!"
 PASS_NEW="NuevaPass456!"
 
@@ -19,7 +19,7 @@ if [ "$INSTALLED" = "False" ]; then
   echo "== install =="
   curl -sf -X POST "$BASE/api/v1/install" \
     -H 'Content-Type: application/json' \
-    -d "{\"tenant_name\":\"MAPS\",\"tenant_slug\":\"maps\",\"admin_name\":\"Administrador\",\"admin_email\":\"$EMAIL\",\"admin_password\":\"$PASS_TEMP\"}" \
+    -d "{\"tenant_name\":\"Acme\",\"tenant_slug\":\"acme\",\"admin_name\":\"Administrator\",\"admin_email\":\"$EMAIL\",\"admin_password\":\"$PASS_TEMP\"}" \
     | tee /tmp/ma_install.json
   echo
 fi
@@ -27,7 +27,7 @@ fi
 echo "== login (must change password) =="
 curl -sf -X POST "$BASE/api/v1/auth/login" \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS_TEMP\",\"tenant_slug\":\"maps\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS_TEMP\",\"tenant_slug\":\"acme\"}" \
   | tee /tmp/ma_login.json
 echo
 ACCESS=$(python3 -c "import json; print(json.load(open('/tmp/ma_login.json'))['access_token'])")
@@ -52,7 +52,7 @@ echo
 echo "== login with new password =="
 curl -sf -X POST "$BASE/api/v1/auth/login" \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS_NEW\",\"tenant_slug\":\"maps\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS_NEW\",\"tenant_slug\":\"acme\"}" \
   | tee /tmp/ma_login2.json
 echo
 ACCESS2=$(python3 -c "import json; print(json.load(open('/tmp/ma_login2.json'))['access_token'])")

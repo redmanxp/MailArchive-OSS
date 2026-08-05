@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.api.rate_limit import enforce_rate_limit
 from app.api.deps.auth import (
     CurrentUserContext,
     get_client_meta,
@@ -64,11 +65,18 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=SelfRegisterResponse)
 def self_register(
     body: SelfRegisterRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     hasher: Annotated[Argon2PasswordHasher, Depends(get_password_hasher)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SelfRegisterResponse:
     """Alta pública: crea usuario o envía enlace de recuperación si el email ya existe."""
+    if not settings.feature_public_register:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro público está deshabilitado. Pedí acceso a un administrador.",
+        )
+    enforce_rate_limit(request, "auth.register", settings)
     uc = SelfRegisterUseCase(
         tenant_repo=SqlAlchemyTenantRepository(db),
         user_repo=SqlAlchemyUserRepository(db),
@@ -140,6 +148,7 @@ def login(
     tokens: Annotated[JwtTokenService, Depends(get_token_service)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> TokenResponse:
+    enforce_rate_limit(request, "auth.login", settings)
     ip, ua = get_client_meta(request)
     uc = LoginUseCase(
         install_repo=SqlAlchemyInstallRepository(db),

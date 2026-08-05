@@ -57,7 +57,7 @@ export default function AccountsPage() {
   const [linkStep, setLinkStep] = useState<LinkStep>("provider");
   const [provider, setProvider] = useState<ProviderChoice>("");
 
-  const [host, setHost] = useState("mail.newlicisalud.com.ar");
+  const [host, setHost] = useState("mail.example.com");
   const [port, setPort] = useState(993);
   const [ssl, setSsl] = useState(true);
   const [username, setUsername] = useState("");

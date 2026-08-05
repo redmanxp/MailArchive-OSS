@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     app_name: str = "MailArchive"
     app_env: str = "development"
-    app_debug: bool = True
+    app_debug: bool = False
     app_url: str = "http://localhost:5175"
     api_url: str = "http://localhost:18100"
     secret_key: str = "change-me-to-a-long-random-string"
@@ -50,18 +50,25 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@example.com"
     smtp_tls: bool = True
 
-    install_tenant_name: str = "Obrasociales"
-    install_tenant_slug: str = "obrasociales"
+    install_tenant_name: str = "Acme"
+    install_tenant_slug: str = "acme"
     install_admin_email: str = "admin@example.com"
-    install_admin_name: str = "Administrador"
+    install_admin_name: str = "Administrator"
 
-    cors_origins: str = "http://localhost:5175,http://127.0.0.1:5175,https://archivos.newlici.com"
+    # Public self-register from login page (invite/reset link). Off by default for OSS.
+    feature_public_register: bool = False
+
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 20
+    rate_limit_window_seconds: int = 60
+
+    cors_origins: str = "http://localhost:5175,http://127.0.0.1:5175"
 
     microsoft_client_id: str = ""
     microsoft_client_secret: str = ""
     microsoft_tenant_id: str = "common"
     microsoft_redirect_uri: str = (
-        "https://archivos.newlici.com/api/v1/accounts/microsoft/oauth/callback"
+        "http://localhost:18100/api/v1/accounts/microsoft/oauth/callback"
     )
     microsoft_object_id: str = ""
     microsoft_secret_id: str = ""

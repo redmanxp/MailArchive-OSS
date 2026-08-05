@@ -2,7 +2,7 @@
 
 ## Qué es
 Sistema de archivado de correos electrónicos para empresas (nombre: MailArchive).
-Workspace: m365_archivo. Destinado inicialmente a MAPS, diseñado multi-tenant desde el día 1.
+Diseñado multi-tenant desde el día 1.
 
 ## Stack
 ### Backend
@@ -32,7 +32,7 @@ Workspace: m365_archivo. Destinado inicialmente a MAPS, diseñado multi-tenant d
 ## Multi-tenant
 - `tenant_id` en todas las tablas de negocio desde el inicio
 - Aislamiento total: usuarios, cuentas, mails, jobs, logs, settings
-- Install (v1): un solo tenant (MAPS). Sin UI multi-tenant SaaS aún
+- Install (v1): un solo tenant. Sin UI multi-tenant SaaS aún
 - JWT incluye `tenant_id`, `user_id`, `role`
 - Queries siempre filtradas por `tenant_id`
 
@@ -43,8 +43,9 @@ Workspace: m365_archivo. Destinado inicialmente a MAPS, diseñado multi-tenant d
 - Primer login / invite: debe definir o cambiar contraseña (`must_change_password`)
 
 ## Acceso de usuarios
-- Alta pública desde login (botón arriba a la derecha): nombre + email (+ tenant) → link invite 48h
+- Alta pública opcional (`FEATURE_PUBLIC_REGISTER`, default **false**): desde login → nombre + email (+ tenant) → link invite 48h
 - Si el email ya existe → enviar link de reset (no duplicar usuario)
+- Rate limit en login / register / install
 - Página del link: `/set-password?token=…` (JWT firmado; se invalida al cambiar password)
 - Admin también crea usuarios sin password en claro: envía el mismo enlace por email
 - Perfil en `/app/profile` (click en datos del sidebar): editar nombre + cambiar contraseña
@@ -98,21 +99,21 @@ Workspace: m365_archivo. Destinado inicialmente a MAPS, diseñado multi-tenant d
 - Responder al usuario en español
 - Código y nombres técnicos en inglés (módulos, clases, endpoints) salvo textos de UI en español
 
-## Puertos locales (evitar conflicto con otros servicios en archivos.newlici.com)
-- API: 18100
-- Frontend Vite: 5175
+## Puertos locales (desarrollo)
+- API: 18100 (lab OSS: 18101 — ver `OSS_DEV.md`)
+- Frontend Vite: 5175 (lab OSS: 5176)
 - MySQL Docker (opcional): host 3307 → container 3306
-- Sin MySQL/Docker: `DB_ENGINE=sqlite` para desarrollo/pruebas Fase 0+
+- Sin MySQL/Docker: `DB_ENGINE=sqlite` para desarrollo/pruebas
 
-## Arranque producción (systemd usuario — como vpn_admin / centinela)
+## Arranque producción (systemd)
 ```
 cd frontend && npm run build
 bash deploy/install-systemd-user.sh
-# linger tras reboot: sudo loginctl enable-linger pablo
+# linger tras reboot: sudo loginctl enable-linger $(whoami)
 ```
 - API: `mailarchive-api` → uvicorn :18100 (1 worker; jobs en threads in-memory)
-- UI: `mailarchive-frontend` → `vite preview` de `frontend/dist` :5175 (nginx no lee `/mnt/almacen`)
-- Nginx `archivos.newlici.com` proxy `/api`→18100 y `/`→5175
+- UI: `mailarchive-frontend` → `vite preview` de `frontend/dist` :5175
+- Nginx: plantillas en `deploy/nginx-mailarchive*.conf` (proxy `/api`→18100 y `/`→5175)
 - Al arrancar la API, jobs `pending`/`running` huérfanos se marcan `failed`
 
 ## Arranque backend (dev)
@@ -120,14 +121,15 @@ bash deploy/install-systemd-user.sh
 cd backend && source .venv/bin/activate && export PYTHONPATH=$PWD
 uvicorn app.main:app --host 0.0.0.0 --port 18100
 ```
-Venv con `uv venv` (python3-venv del sistema no disponible sin sudo).
+Venv con `uv venv`.
 
 ## Funcionalidades críticas (NO ROMPER)
 - Aislamiento por `tenant_id`
 - Flujo must_change_password en primer login / invite
-- Alta/reset por enlace temporal (sin password en el mail)
+- Alta/reset por enlace temporal (sin password en el mail); register público off por default
 - Perfil propio editable desde el sidebar (`/app/profile`)
 - Contrato MailProvider desacoplado del dominio
 - Estructura de almacenamiento EML (no PST)
 - Confirmación explícita antes de borrar correo del proveedor
 - Nunca persistir password de Microsoft
+- Rate limiting en login / register / install

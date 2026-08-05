@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.api.rate_limit import enforce_rate_limit
 from app.api.deps.auth import get_client_meta, get_password_hasher, map_domain_error
 from app.application.use_cases.install.bootstrap import (
     BootstrapInstallationUseCase,
@@ -28,9 +29,16 @@ router = APIRouter(prefix="/install", tags=["install"])
 
 
 @router.get("/status", response_model=InstallStatusResponse)
-def install_status(db: Annotated[Session, Depends(get_db)]) -> InstallStatusResponse:
+def install_status(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> InstallStatusResponse:
     uc = GetInstallationStatusUseCase(SqlAlchemyInstallRepository(db))
-    return InstallStatusResponse(**uc.execute())
+    data = uc.execute()
+    return InstallStatusResponse(
+        installed=data["installed"],
+        public_register_enabled=settings.feature_public_register,
+    )
 
 
 @router.post("", response_model=InstallResponse)
@@ -41,6 +49,7 @@ def install(
     hasher: Annotated[Argon2PasswordHasher, Depends(get_password_hasher)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InstallResponse:
+    enforce_rate_limit(request, "install", settings)
     ip, ua = get_client_meta(request)
     uc = BootstrapInstallationUseCase(
         install_repo=SqlAlchemyInstallRepository(db),

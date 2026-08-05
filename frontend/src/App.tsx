@@ -42,10 +42,14 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 export default function App() {
   const { user, loading } = useAuth();
   const [installed, setInstalled] = useState<boolean | null>(null);
+  const [publicRegister, setPublicRegister] = useState(false);
 
   useEffect(() => {
     getInstallStatus()
-      .then((s) => setInstalled(s.installed))
+      .then((s) => {
+        setInstalled(s.installed);
+        setPublicRegister(!!s.public_register_enabled);
+      })
       .catch(() => setInstalled(false));
   }, []);
 
@@ -67,7 +71,10 @@ export default function App() {
         path="/login"
         element={user && !user.must_change_password ? <Navigate to="/app" replace /> : <LoginPage />}
       />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/register"
+        element={publicRegister ? <RegisterPage /> : <Navigate to="/login" replace />}
+      />
       <Route path="/set-password" element={<SetPasswordPage />} />
       <Route
         path="/change-password"

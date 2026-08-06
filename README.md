@@ -6,10 +6,8 @@
 [![React](https://img.shields.io/badge/frontend-React%20%2B%20Vite-61dafb)](./frontend/package.json)
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F6V224JUWU)
 
-![MailArchive dashboard](docs/images/dashboard.png)
-
 <p align="center">
-  <img src="docs/images/logo-full.png" alt="MailArchive" width="220" />
+  <img src="docs/images/cover.png" alt="MailArchive — Open Source Email Archiving" width="100%" />
 </p>
 
 > Open source self-hosted email archiving platform for organizations.

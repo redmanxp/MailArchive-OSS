@@ -14,7 +14,7 @@ from app.domain.enums.roles import UserRole
 from app.domain.exceptions import AuthorizationError, NotFoundError, ValidationError
 from app.domain.interfaces.mail_provider import MessageQuery
 from app.domain.interfaces.repositories import IAuditLogRepository
-from app.infrastructure.persistence.database import SessionLocal
+from app.infrastructure.persistence.database import SessionLocal, commit_with_retry, write_with_retry
 from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
 from app.infrastructure.persistence.repositories.mail_repos import (
     SqlAlchemyArchivedMailRepository,
@@ -274,7 +274,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
             # Already running, finished, or missing — avoid double execution.
             logger.info("Archive job id=%s tenant=%s not claimed (skip)", job_id, tenant_id)
             return
-        db.commit()
+        commit_with_retry(db)
 
         criteria = dict(job.criteria or {})
         limit = int(criteria.get("limit") or 500)
@@ -292,12 +292,12 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                 error_message="Cuenta no encontrada",
                 finished=True,
             )
-            db.commit()
+            commit_with_retry(db)
             return
 
         def _persist(tokens: dict[str, Any]) -> None:
             account_repo.update_credentials(tenant_id, account.id, cipher.encrypt_dict(tokens))
-            db.commit()
+            commit_with_retry(db)
 
         provider = factory.create(
             provider=account.provider,
@@ -323,6 +323,9 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         processed = archived = skipped = failed = 0
         archived_bytes = 0
         max_received: datetime | None = None
+        skipped_samples: list[dict[str, Any]] = []
+        failed_samples: list[dict[str, Any]] = []
+        archived_samples: list[dict[str, Any]] = []
         role = UserRole.USER  # job owner acts as themselves; permission already checked
         # Use ADMIN for job execution against account ownership already validated
         try:
@@ -334,21 +337,42 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         except Exception:
             pass
 
+        def _persist_result(*, note: str | None = None) -> None:
+            job_repo.set_result(
+                tenant_id,
+                job_id,
+                {
+                    "note": note,
+                    "archived": archived,
+                    "skipped_already_archived": skipped,
+                    "failed": failed,
+                    "archived_bytes": archived_bytes,
+                    "skipped_samples": skipped_samples[:15],
+                    "archived_samples": archived_samples[:15],
+                    "failed_samples": failed_samples[:15],
+                },
+            )
+
         for msg in messages:
             if _is_cancelled(job_id):
-                job_repo.update_progress(
-                    tenant_id,
-                    job_id,
-                    status=ArchiveJobStatus.CANCELLED.value,
-                    processed=processed,
-                    archived=archived,
-                    skipped=skipped,
-                    failed=failed,
-                    archived_bytes=archived_bytes,
-                    finished=True,
-                )
-                db.commit()
+
+                def _cancel_progress() -> None:
+                    job_repo.update_progress(
+                        tenant_id,
+                        job_id,
+                        status=ArchiveJobStatus.CANCELLED.value,
+                        processed=processed,
+                        archived=archived,
+                        skipped=skipped,
+                        failed=failed,
+                        archived_bytes=archived_bytes,
+                        finished=True,
+                    )
+                    _persist_result(note="cancelled")
+
+                write_with_retry(db, _cancel_progress)
                 _notify_schedule(db, tenant_id, job.account_id, job_id, "cancelled", None, None)
+                commit_with_retry(db)
                 _clear_cancel(job_id)
                 return
 
@@ -362,6 +386,14 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
             existing = archived_repo.get_by_provider_message_id(tenant_id, account.id, msg.id)
             if existing:
                 skipped += 1
+                if len(skipped_samples) < 15:
+                    skipped_samples.append(
+                        {
+                            "message_id": msg.id,
+                            "subject": (msg.subject or "")[:200],
+                            "reason": "already_archived",
+                        }
+                    )
             else:
                 try:
                     result = archive_uc.execute(
@@ -376,11 +408,27 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                     )
                     archived += 1
                     archived_bytes += int(result.get("size_bytes") or msg.size_bytes or 0)
+                    if len(archived_samples) < 15:
+                        archived_samples.append(
+                            {
+                                "message_id": msg.id,
+                                "subject": (msg.subject or result.get("subject") or "")[:200],
+                            }
+                        )
                 except Exception as exc:
                     failed += 1
                     logger.exception("Job %s failed message %s: %s", job_id, msg.id, exc)
+                    if len(failed_samples) < 15:
+                        failed_samples.append(
+                            {
+                                "message_id": msg.id,
+                                "subject": (msg.subject or "")[:200],
+                                "error": str(exc)[:500],
+                            }
+                        )
 
-            if processed % 5 == 0 or processed == len(messages):
+            # Commit every message so the SQLite write lock is not held across Graph I/O
+            def _progress() -> None:
                 job_repo.update_progress(
                     tenant_id,
                     job_id,
@@ -390,23 +438,27 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                     failed=failed,
                     archived_bytes=archived_bytes,
                 )
-                db.commit()
 
-        job_repo.update_progress(
-            tenant_id,
-            job_id,
-            status=ArchiveJobStatus.COMPLETED.value,
-            processed=processed,
-            archived=archived,
-            skipped=skipped,
-            failed=failed,
-            archived_bytes=archived_bytes,
-            finished=True,
-        )
-        db.commit()
+            write_with_retry(db, _progress)
+
+        def _complete() -> None:
+            job_repo.update_progress(
+                tenant_id,
+                job_id,
+                status=ArchiveJobStatus.COMPLETED.value,
+                processed=processed,
+                archived=archived,
+                skipped=skipped,
+                failed=failed,
+                archived_bytes=archived_bytes,
+                finished=True,
+            )
+            _persist_result()
+
+        write_with_retry(db, _complete)
         watermark = max_received or datetime.now(UTC)
         _notify_schedule(db, tenant_id, job.account_id, job_id, "ok", None, watermark)
-        db.commit()
+        commit_with_retry(db)
         logger.info(
             "Archive job %s done archived=%s skipped=%s failed=%s",
             job_id,
@@ -418,21 +470,42 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         logger.exception("Archive job %s crashed", job_id)
         try:
             db.rollback()
-            SqlAlchemyArchiveJobRepository(db).update_progress(
-                tenant_id,
-                job_id,
-                status=ArchiveJobStatus.FAILED.value,
-                error_message=str(exc)[:1000],
-                finished=True,
-            )
-            db.commit()
+
+            def _fail() -> None:
+                SqlAlchemyArchiveJobRepository(db).update_progress(
+                    tenant_id,
+                    job_id,
+                    status=ArchiveJobStatus.FAILED.value,
+                    error_message=str(exc)[:1000],
+                    finished=True,
+                )
+                try:
+                    SqlAlchemyArchiveJobRepository(db).set_result(
+                        tenant_id,
+                        job_id,
+                        {
+                            "note": "failed",
+                            "archived": archived,
+                            "skipped_already_archived": skipped,
+                            "failed": failed,
+                            "archived_bytes": archived_bytes,
+                            "skipped_samples": skipped_samples[:15],
+                            "archived_samples": archived_samples[:15],
+                            "failed_samples": failed_samples[:15],
+                            "crash": str(exc)[:500],
+                        },
+                    )
+                except NameError:
+                    pass
+
+            write_with_retry(db, _fail)
             try:
                 job_row = SqlAlchemyArchiveJobRepository(db).get(tenant_id, job_id)
                 if job_row:
                     _notify_schedule(
                         db, tenant_id, job_row.account_id, job_id, "failed", str(exc)[:1000], None
                     )
-                    db.commit()
+                    commit_with_retry(db)
             except Exception:
                 logger.exception("Could not update schedule after job failure")
         except Exception:

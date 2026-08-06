@@ -318,6 +318,13 @@ class SqlAlchemyArchivedMailRepository:
         mail_fts.upsert_mail_fts(self._db, row)
         return row
 
+    def mark_deleted_from_provider(self, tenant_id: int, mail_id: str) -> None:
+        row = self.get(tenant_id, mail_id)
+        if row is None:
+            return
+        row.deleted_from_provider = True
+        self._db.flush()
+
     def get_by_provider_message_id(
         self, tenant_id: int, account_id: int, provider_message_id: str
     ) -> ArchivedMailModel | None:

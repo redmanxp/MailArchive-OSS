@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from app.domain.enums.providers import AccountStatus
 from app.domain.enums.roles import UserRole
@@ -99,3 +100,42 @@ class UpdateArchiveScheduleUseCase:
             interval_minutes,
         )
         return self.schedule_repo.to_public(row)
+
+
+class RunArchiveScheduleNowUseCase:
+    """Enqueue a scheduled incremental archive job immediately."""
+
+    def __init__(
+        self,
+        account_repo: SqlAlchemyMailAccountRepository,
+        schedule_repo: SqlAlchemyArchiveScheduleRepository,
+        audit_repo: IAuditLogRepository,
+        db: Any,
+    ) -> None:
+        self.account_repo = account_repo
+        self.schedule_repo = schedule_repo
+        self.audit_repo = audit_repo
+        self.db = db
+
+    def execute(self, *, tenant_id: int, user_id: int, role: UserRole, account_id: int) -> dict:
+        from app.infrastructure.jobs.schedule_dispatcher import enqueue_account_schedule_now
+
+        account = self.account_repo.get(tenant_id, account_id)
+        if account is None:
+            raise NotFoundError("Cuenta no encontrada")
+        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
+            raise AuthorizationError("No puede ejecutar la programación de esta cuenta")
+
+        job_id = enqueue_account_schedule_now(self.db, tenant_id, account_id)
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="archive_schedule.run_now",
+            resource_type="mail_account",
+            resource_id=str(account_id),
+            details={"job_id": job_id},
+        )
+        logger.info("Archive schedule run-now account=%s job=%s", account_id, job_id)
+        row = self.schedule_repo.get_by_account(tenant_id, account_id)
+        public = self.schedule_repo.to_public(row) if row else {"account_id": account_id}
+        return {**public, "job_id": job_id}

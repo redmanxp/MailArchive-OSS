@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   Alert,
+  Box,
   Button,
   Checkbox,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
-  DialogContentText,
   DialogTitle,
   FormControlLabel,
   IconButton,
@@ -23,17 +24,23 @@ import {
   Typography,
 } from "@mui/material";
 import ArchiveIcon from "@mui/icons-material/Archive";
+import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import AppLayout from "../layouts/AppLayout";
 import PageShell from "../components/PageShell";
+import MailBodyViewer from "../components/MailBodyViewer";
 import {
   archiveMessage,
+  downloadProviderAttachmentToDisk,
   listAccountFolders,
   listAccountMessages,
   listAccounts,
+  previewProviderMessage,
   type AccountPublic,
   type FolderPublic,
   type ProviderMessage,
+  type ProviderMessageDetail,
 } from "../api/client";
 import { useLocale } from "../i18n/LocaleContext";
 import { formatDateTime } from "../utils/datetime";
@@ -57,6 +64,8 @@ export default function ArchivePage() {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<ProviderMessage | null>(null);
+  const [detail, setDetail] = useState<ProviderMessageDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
 
   useEffect(() => {
@@ -89,6 +98,36 @@ export default function ArchivePage() {
       .finally(() => setLoading(false));
   }, [accountId, t]);
 
+  useEffect(() => {
+    if (!pending || !accountId) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setDetail(null);
+    setDetailLoading(true);
+    previewProviderMessage(Number(accountId), pending.id, folderId || undefined)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(
+            String(
+              (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+                t("archive", "previewError")
+            )
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pending, accountId, folderId, t]);
+
   async function loadMessages(e?: FormEvent) {
     e?.preventDefault();
     if (!accountId) return;
@@ -114,36 +153,59 @@ export default function ArchivePage() {
     }
   }
 
+  function closePending() {
+    if (loading) return;
+    setPending(null);
+    setDetail(null);
+    setDeleteAfter(false);
+  }
+
+  function openPending(m: ProviderMessage) {
+    setError(null);
+    setPending(m);
+    setDeleteAfter(false);
+  }
+
   async function confirmArchive() {
     if (!pending || !accountId) return;
     setLoading(true);
     setError(null);
     try {
       const folderMeta = folders.find((f) => f.id === folderId);
-      await archiveMessage({
+      const result = await archiveMessage({
         account_id: Number(accountId),
         message_id: pending.id,
         folder_id: folderId || pending.folder || undefined,
         folder_path: folderMeta?.path || folderMeta?.name || undefined,
         delete_after_archive: deleteAfter,
       });
-      setInfo(deleteAfter ? t("archive", "doneDeleted") : t("archive", "doneKept"));
-      setPending(null);
-      setDeleteAfter(false);
+      if (result.already_archived) {
+        setInfo(
+          deleteAfter && result.deleted_from_provider
+            ? t("archive", "doneAlreadyDeleted")
+            : t("archive", "doneAlready")
+        );
+      } else {
+        setInfo(deleteAfter ? t("archive", "doneDeleted") : t("archive", "doneKept"));
+      }
+      closePending();
       await loadMessages();
     } catch (err: unknown) {
-      setError(
-        String(
-          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-            t("archive", "archiveError")
-        )
-      );
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      const msg =
+        typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((d) => (typeof d === "object" && d && "msg" in d ? String((d as { msg: unknown }).msg) : String(d))).join("; ")
+            : t("archive", "archiveError");
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
   const noSubject = t("archive", "noSubject");
+  const shown = detail || pending;
 
   return (
     <AppLayout>
@@ -254,15 +316,21 @@ export default function ArchivePage() {
                   <TableCell>{formatBytes(m.size_bytes)}</TableCell>
                   <TableCell>{m.has_attachments ? t("common", "yes") : t("common", "no")}</TableCell>
                   <TableCell align="right">
+                    <Tooltip title={t("archive", "preview")}>
+                      <IconButton
+                        size="small"
+                        aria-label={t("archive", "preview")}
+                        onClick={() => openPending(m)}
+                      >
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title={t("archive", "title")}>
                       <IconButton
                         size="small"
                         color="primary"
                         aria-label={t("archive", "title")}
-                        onClick={() => {
-                          setPending(m);
-                          setDeleteAfter(false);
-                        }}
+                        onClick={() => openPending(m)}
                       >
                         <ArchiveIcon fontSize="small" />
                       </IconButton>
@@ -282,36 +350,132 @@ export default function ArchivePage() {
         </Paper>
       </PageShell>
 
-      <Dialog open={!!pending} onClose={() => setPending(null)}>
-        <DialogTitle>{t("archive", "confirmTitle")}</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            {t("archive", "confirmBody")}{" "}
-            <strong>{pending?.subject || noSubject}</strong>
-          </DialogContentText>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={deleteAfter}
-                onChange={(e) => setDeleteAfter(e.target.checked)}
-                color="warning"
+      <Dialog
+        open={!!pending}
+        onClose={closePending}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{ sx: { minHeight: "82vh" } }}
+      >
+        <DialogTitle sx={{ py: 1.5 }}>{shown?.subject || noSubject}</DialogTitle>
+        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 1.5, pb: 2 }}>
+          {detailLoading && (
+            <Stack alignItems="center" py={4}>
+              <CircularProgress size={32} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {t("archive", "previewLoading")}
+              </Typography>
+            </Stack>
+          )}
+          {!detailLoading && shown && (
+            <>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                  gap: 1,
+                  columnGap: 3,
+                }}
+              >
+                <Box>
+                  <Typography variant="body2">
+                    <strong>{t("archive", "from")}:</strong> {shown.from_address}
+                  </Typography>
+                  {detail?.to_addresses && (
+                    <Typography variant="body2">
+                      <strong>{t("archive", "to")}:</strong>{" "}
+                      {detail.to_addresses.join(", ") || t("common", "emptyDash")}
+                    </Typography>
+                  )}
+                </Box>
+                <Box>
+                  <Typography variant="body2">
+                    <strong>{t("archive", "date")}:</strong>{" "}
+                    {formatDateTime(shown.received_at || shown.sent_at)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>{t("archive", "size")}:</strong> {formatBytes(shown.size_bytes || 0)}
+                  </Typography>
+                </Box>
+              </Box>
+              {detail && (
+                <MailBodyViewer
+                  text={detail.body_text}
+                  html={detail.body_html}
+                  isHtml={detail.body_is_html}
+                  minHeight={420}
+                  maxHeight="42vh"
+                />
+              )}
+              {(detail?.attachments?.length ?? 0) > 0 && accountId && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                    {t("archive", "attachmentsTitle")}
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    {detail!.attachments!.map((a) => (
+                      <Stack key={a.id} direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="body2">
+                          {a.filename} ({formatBytes(a.size_bytes)})
+                        </Typography>
+                        <Tooltip title={t("archive", "downloadAttachment")}>
+                          <IconButton
+                            size="small"
+                            aria-label={t("archive", "downloadAttachment")}
+                            onClick={async () => {
+                              try {
+                                await downloadProviderAttachmentToDisk(
+                                  Number(accountId),
+                                  pending!.id,
+                                  a.id,
+                                  folderId || undefined
+                                );
+                              } catch (err: unknown) {
+                                setError(
+                                  String(
+                                    (err as { response?: { data?: { detail?: string } } })?.response
+                                      ?.data?.detail || t("archive", "downloadError")
+                                  )
+                                );
+                              }
+                            }}
+                          >
+                            <DownloadIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+              <Typography variant="body2" color="text.secondary">
+                {t("archive", "confirmBody")}
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={deleteAfter}
+                    onChange={(e) => setDeleteAfter(e.target.checked)}
+                    color="warning"
+                  />
+                }
+                label={t("archive", "alsoDelete")}
               />
-            }
-            label={t("archive", "alsoDelete")}
-          />
-          {deleteAfter && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
-              {t("archive", "deleteWarning")}
-            </Alert>
+              {deleteAfter && (
+                <Alert severity="warning">{t("archive", "deleteWarning")}</Alert>
+              )}
+            </>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPending(null)}>{t("common", "cancel")}</Button>
+          <Button onClick={closePending} disabled={loading}>
+            {t("common", "cancel")}
+          </Button>
           <Button
             variant="contained"
             color={deleteAfter ? "warning" : "primary"}
             onClick={confirmArchive}
-            disabled={loading}
+            disabled={loading || detailLoading}
           >
             {deleteAfter ? t("archive", "archiveDelete") : t("archive", "archiveKeep")}
           </Button>

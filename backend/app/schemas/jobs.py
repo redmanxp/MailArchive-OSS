@@ -42,9 +42,11 @@ class BulkStartRequest(BaseModel):
 class ArchiveJobPublic(BaseModel):
     id: int
     account_id: int
+    account_email: str | None = None
     user_id: int
     status: str
     criteria: dict | None = None
+    result: dict | None = None
     delete_after_archive: bool
     total_messages: int
     processed_messages: int
@@ -74,6 +76,7 @@ class ArchiveSchedulePublic(BaseModel):
     last_job_id: int | None = None
     last_status: str | None = None
     last_error: str | None = None
+    job_id: int | None = None
 
 
 class ArchiveScheduleUpdate(BaseModel):

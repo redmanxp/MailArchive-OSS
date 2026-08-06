@@ -4,6 +4,10 @@ import {
   Alert,
   Button,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   IconButton,
   LinearProgress,
@@ -20,6 +24,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ReplayIcon from "@mui/icons-material/Replay";
 import StopIcon from "@mui/icons-material/Stop";
@@ -50,6 +55,13 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function criteriaSourceLabel(criteria: Record<string, unknown> | null | undefined, t: (ns: string, k: string) => string) {
+  const src = String(criteria?.source || "");
+  if (src === "scheduled_incremental") return t("bulk", "sourceScheduled");
+  if (src) return src;
+  return t("bulk", "sourceManual");
+}
+
 export default function BulkArchivePage() {
   const { t, tf } = useLocale();
   const { jobStatusLabel } = useLabels();
@@ -68,6 +80,7 @@ export default function BulkArchivePage() {
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [jobs, setJobs] = useState<ArchiveJob[]>([]);
   const [showJobHistory, setShowJobHistory] = useState(false);
+  const [detailJob, setDetailJob] = useState<ArchiveJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -384,6 +397,7 @@ export default function BulkArchivePage() {
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "jobId")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "jobAccount")}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "jobStatus")}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "progress")}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "archived")}</TableCell>
@@ -397,6 +411,11 @@ export default function BulkArchivePage() {
                 {visibleJobs.map((j) => (
                   <TableRow key={j.id}>
                     <TableCell>#{j.id}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap title={j.account_email || undefined}>
+                        {j.account_email || `#${j.account_id}`}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{jobStatusLabel(j.status)}</TableCell>
                     <TableCell sx={{ minWidth: 160 }}>
                       <Typography variant="caption">
@@ -428,6 +447,23 @@ export default function BulkArchivePage() {
                     </TableCell>
                     <TableCell>{formatDateTime(j.created_at)}</TableCell>
                     <TableCell align="right">
+                      <Tooltip title={t("bulk", "jobDetail")}>
+                        <IconButton
+                          size="small"
+                          aria-label={t("bulk", "jobDetail")}
+                          onClick={async () => {
+                            try {
+                              const fresh = await getArchiveJob(j.id);
+                              setJobs((prev) => prev.map((x) => (x.id === j.id ? fresh : x)));
+                              setDetailJob(fresh);
+                            } catch {
+                              setDetailJob(j);
+                            }
+                          }}
+                        >
+                          <InfoOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title={t("common", "refresh")}>
                         <IconButton
                           size="small"
@@ -485,7 +521,7 @@ export default function BulkArchivePage() {
                 ))}
                 {visibleJobs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <Typography color="text.secondary">
                         {showJobHistory ? t("bulk", "noJobs") : t("bulk", "noJobsHint")}
                       </Typography>
@@ -496,6 +532,125 @@ export default function BulkArchivePage() {
             </Table>
           </TableContainer>
         </Paper>
+
+        <Dialog open={detailJob != null} onClose={() => setDetailJob(null)} fullWidth maxWidth="md">
+          <DialogTitle>
+            {tf("bulk", "jobDetailTitle", { id: String(detailJob?.id ?? "") })}
+          </DialogTitle>
+          <DialogContent dividers>
+            {detailJob && (
+              <Stack spacing={2}>
+                <Stack spacing={0.5}>
+                  <Typography variant="body2">
+                    <strong>{t("bulk", "jobAccount")}:</strong>{" "}
+                    {detailJob.account_email || `#${detailJob.account_id}`}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>{t("bulk", "jobStatus")}:</strong> {jobStatusLabel(detailJob.status)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>{t("bulk", "jobSource")}:</strong>{" "}
+                    {criteriaSourceLabel(detailJob.criteria, t)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>{t("bulk", "created")}:</strong> {formatDateTime(detailJob.created_at)}
+                    {detailJob.started_at ? ` · ${t("bulk", "started")}: ${formatDateTime(detailJob.started_at)}` : ""}
+                    {detailJob.finished_at
+                      ? ` · ${t("bulk", "finished")}: ${formatDateTime(detailJob.finished_at)}`
+                      : ""}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>{t("bulk", "deleteFromProvider")}:</strong>{" "}
+                    {detailJob.delete_after_archive ? t("common", "yes") : t("common", "no")}
+                  </Typography>
+                </Stack>
+
+                <Alert severity="info" variant="outlined">
+                  {tf("bulk", "jobResultSummary", {
+                    archived: detailJob.result?.archived ?? detailJob.archived_messages,
+                    skipped:
+                      detailJob.result?.skipped_already_archived ?? detailJob.skipped_messages,
+                    failed: detailJob.result?.failed ?? detailJob.failed_messages,
+                  })}
+                </Alert>
+
+                {(detailJob.result?.skipped_samples?.length ||
+                  (!detailJob.result && detailJob.skipped_messages > 0)) && (
+                  <Stack spacing={0.5}>
+                    <Typography variant="subtitle2">{t("bulk", "skippedTitle")}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("bulk", "skippedHint")}
+                    </Typography>
+                    {(detailJob.result?.skipped_samples || []).map((s, i) => (
+                      <Typography key={i} variant="body2" noWrap title={s.subject}>
+                        • {s.subject || t("bulk", "noSubject")}
+                      </Typography>
+                    ))}
+                    {!detailJob.result && (
+                      <Typography variant="caption" color="text.secondary">
+                        {t("bulk", "noSampleOldJob")}
+                      </Typography>
+                    )}
+                  </Stack>
+                )}
+
+                {(detailJob.result?.archived_samples?.length || 0) > 0 && (
+                  <Stack spacing={0.5}>
+                    <Typography variant="subtitle2">{t("bulk", "archivedTitle")}</Typography>
+                    {detailJob.result!.archived_samples!.map((s, i) => (
+                      <Typography key={i} variant="body2" noWrap title={s.subject}>
+                        • {s.subject || t("bulk", "noSubject")}
+                      </Typography>
+                    ))}
+                  </Stack>
+                )}
+
+                {((detailJob.result?.failed_samples?.length || 0) > 0 ||
+                  detailJob.error_message) && (
+                  <Stack spacing={0.5}>
+                    <Typography variant="subtitle2" color="error">
+                      {t("bulk", "failedTitle")}
+                    </Typography>
+                    {detailJob.error_message && (
+                      <Typography variant="body2" color="error">
+                        {detailJob.error_message}
+                      </Typography>
+                    )}
+                    {(detailJob.result?.failed_samples || []).map((s, i) => (
+                      <Typography key={i} variant="body2" color="error">
+                        • {s.subject || t("bulk", "noSubject")}
+                        {s.error ? ` — ${s.error}` : ""}
+                      </Typography>
+                    ))}
+                  </Stack>
+                )}
+
+                {detailJob.criteria && (
+                  <Stack spacing={0.5}>
+                    <Typography variant="subtitle2">{t("bulk", "criteriaTitle")}</Typography>
+                    <Typography
+                      component="pre"
+                      variant="caption"
+                      sx={{
+                        m: 0,
+                        p: 1,
+                        bgcolor: "action.hover",
+                        borderRadius: 1,
+                        overflow: "auto",
+                        maxHeight: 160,
+                      }}
+                    >
+                      {JSON.stringify(detailJob.criteria, null, 2)}
+                    </Typography>
+                  </Stack>
+                )}
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDetailJob(null)}>{t("common", "close")}</Button>
+          </DialogActions>
+        </Dialog>
       </PageShell>
     </AppLayout>
   );

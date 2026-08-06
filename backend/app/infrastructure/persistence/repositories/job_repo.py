@@ -169,8 +169,22 @@ class SqlAlchemyArchiveJobRepository:
         row.error_message = None
         row.started_at = None
         row.finished_at = None
+        if isinstance(row.criteria, dict) and "__result" in row.criteria:
+            cleaned = dict(row.criteria)
+            cleaned.pop("__result", None)
+            row.criteria = cleaned
         self._db.flush()
         return row
+
+    def set_result(self, tenant_id: int, job_id: int, result: dict[str, Any]) -> None:
+        """Attach a compact result summary under criteria['__result'] (no schema migration)."""
+        row = self.get(tenant_id, job_id)
+        if row is None:
+            return
+        base = dict(row.criteria or {})
+        base["__result"] = result
+        row.criteria = base
+        self._db.flush()
 
     def reassign_user_for_account(self, tenant_id: int, account_id: int, new_user_id: int) -> int:
         rows = list(

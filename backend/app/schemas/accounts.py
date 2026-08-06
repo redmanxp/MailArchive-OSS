@@ -21,6 +21,7 @@ class AccountPublic(BaseModel):
     imap_ssl: bool | None = None
     imap_username: str | None = None
     archived_count: int | None = None
+    schedule_enabled: bool = False
 
 
 class ImapTestRequest(BaseModel):
@@ -94,6 +95,7 @@ class ArchiveMessageResponse(BaseModel):
     content_sha256: str
     deleted_from_provider: bool
     storage_path: str
+    already_archived: bool = False
 
 
 class ArchivedMailPublic(BaseModel):

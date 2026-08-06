@@ -153,3 +153,21 @@ class SqlAlchemyArchiveScheduleRepository:
         )
         self._db.flush()
         return bool(result.rowcount)
+
+    def list_enabled_account_ids(self, tenant_id: int) -> set[int]:
+        rows = self._db.scalars(
+            select(ArchiveScheduleModel.account_id).where(
+                ArchiveScheduleModel.tenant_id == tenant_id,
+                ArchiveScheduleModel.enabled.is_(True),
+            )
+        ).all()
+        return set(int(x) for x in rows)
+
+    def force_due_now(self, tenant_id: int, account_id: int) -> ArchiveScheduleModel | None:
+        """Set next_run_at to now so the dispatcher picks it up immediately."""
+        row = self.get_by_account(tenant_id, account_id)
+        if row is None or not row.enabled:
+            return None
+        row.next_run_at = datetime.now(UTC)
+        self._db.flush()
+        return row

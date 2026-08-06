@@ -39,16 +39,32 @@ def _cipher(settings: Settings) -> CredentialCipher:
     return CredentialCipher(settings)
 
 
-def _job_public(row) -> ArchiveJobPublic:
+def _account_emails(db: Session, tenant_id: int, account_ids: set[int]) -> dict[int, str]:
+    if not account_ids:
+        return {}
+    out: dict[int, str] = {}
+    for acc in SqlAlchemyMailAccountRepository(db).list_for_tenant(tenant_id):
+        if acc.id in account_ids:
+            out[acc.id] = acc.email
+    return out
+
+
+def _job_public(row, *, account_email: str | None = None) -> ArchiveJobPublic:
     total = row.total_messages or 0
     processed = row.processed_messages or 0
     pct = round((processed / total) * 100, 1) if total else 0.0
+    criteria = dict(row.criteria or {}) if row.criteria else {}
+    result = criteria.pop("__result", None) if isinstance(criteria, dict) else None
+    # Hide internal result key from criteria exposed to clients
+    public_criteria = {k: v for k, v in criteria.items() if k != "__result"} if criteria else None
     return ArchiveJobPublic(
         id=row.id,
         account_id=row.account_id,
+        account_email=account_email,
         user_id=row.user_id,
         status=row.status,
-        criteria=row.criteria,
+        criteria=public_criteria or None,
+        result=result if isinstance(result, dict) else None,
         delete_after_archive=row.delete_after_archive,
         total_messages=row.total_messages,
         processed_messages=row.processed_messages,
@@ -176,7 +192,11 @@ def start_bulk(
         daemon=True,
     ).start()
     job = job_repo.get(tenant_id, job_id)
-    return _job_public(job)
+    email = None
+    if job is not None:
+        acc = SqlAlchemyMailAccountRepository(db).get(tenant_id, job.account_id)
+        email = acc.email if acc else None
+    return _job_public(job, account_email=email)
 
 
 @router.get("", response_model=list[ArchiveJobPublic])
@@ -188,7 +208,8 @@ def list_jobs(
     rows = SqlAlchemyArchiveJobRepository(db).list_for_tenant(
         ctx.user.tenant_id, user_id=scope_user, limit=50
     )
-    return [_job_public(r) for r in rows]
+    emails = _account_emails(db, ctx.user.tenant_id, {r.account_id for r in rows})
+    return [_job_public(r, account_email=emails.get(r.account_id)) for r in rows]
 
 
 @router.get("/{job_id}", response_model=ArchiveJobPublic)
@@ -202,7 +223,8 @@ def get_job(
         raise map_domain_error(NotFoundError("Job no encontrado"))
     if ctx.user.role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and row.user_id != ctx.user.id:
         raise map_domain_error(AuthorizationError("No puede ver este job"))
-    return _job_public(row)
+    acc = SqlAlchemyMailAccountRepository(db).get(ctx.user.tenant_id, row.account_id)
+    return _job_public(row, account_email=acc.email if acc else None)
 
 
 @router.post("/{job_id}/cancel", response_model=dict)
@@ -255,4 +277,5 @@ def retry_job(
     job = job_repo.get(tenant_id, job_id)
     if job is None:
         raise map_domain_error(NotFoundError("Job no encontrado"))
-    return _job_public(job)
+    acc = SqlAlchemyMailAccountRepository(db).get(tenant_id, job.account_id)
+    return _job_public(job, account_email=acc.email if acc else None)

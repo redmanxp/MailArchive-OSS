@@ -33,6 +33,7 @@ from app.domain.exceptions import DomainError
 from app.infrastructure.persistence.database import get_db
 from app.application.use_cases.accounts.schedule_use_cases import (
     GetArchiveScheduleUseCase,
+    RunArchiveScheduleNowUseCase,
     UpdateArchiveScheduleUseCase,
 )
 from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
@@ -87,6 +88,7 @@ def list_accounts(
         SqlAlchemyMailAccountRepository(db),
         SqlAlchemyUserRepository(db),
         SqlAlchemyArchivedMailRepository(db),
+        schedule_repo=SqlAlchemyArchiveScheduleRepository(db),
     )
     items = uc.execute(
         tenant_id=ctx.user.tenant_id,
@@ -382,6 +384,30 @@ def update_account_schedule(
             folder_path=body.folder_path,
             limit_per_run=body.limit_per_run,
             only_with_attachments=body.only_with_attachments,
+        )
+    except DomainError as exc:
+        raise map_domain_error(exc) from exc
+    return ArchiveSchedulePublic(**data)
+
+
+@router.post("/{account_id}/schedule/run", response_model=ArchiveSchedulePublic)
+def run_account_schedule_now(
+    account_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[CurrentUserContext, Depends(get_current_user)],
+) -> ArchiveSchedulePublic:
+    uc = RunArchiveScheduleNowUseCase(
+        SqlAlchemyMailAccountRepository(db),
+        SqlAlchemyArchiveScheduleRepository(db),
+        SqlAlchemyAuditLogRepository(db),
+        db,
+    )
+    try:
+        data = uc.execute(
+            tenant_id=ctx.user.tenant_id,
+            user_id=ctx.user.id,
+            role=ctx.user.role,
+            account_id=account_id,
         )
     except DomainError as exc:
         raise map_domain_error(exc) from exc

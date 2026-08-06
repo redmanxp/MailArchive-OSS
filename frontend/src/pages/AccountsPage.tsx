@@ -46,6 +46,7 @@ import {
   listUsers,
   purgeAccountArchive,
   reconnectImapAccount,
+  runAccountScheduleNow,
   startMicrosoftOAuth,
   testImapConnection,
   transferAccount,
@@ -478,6 +479,39 @@ export default function AccountsPage() {
       setInfoSeverity("success");
       setInfo(t("accounts", "scheduleSaved"));
       setScheduleTarget(null);
+      await refresh();
+    } catch (err: unknown) {
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runScheduleNow() {
+    if (!scheduleTarget || !schedEnabled) return;
+    setLoading(true);
+    setError(null);
+    try {
+      // Persist current form state first so run uses saved policy
+      await updateAccountSchedule(scheduleTarget.id, {
+        enabled: true,
+        interval_minutes: schedInterval,
+        limit_per_run: schedLimit,
+        only_with_attachments: schedAttachments,
+        folder_id: schedule?.folder_id,
+        folder_path: schedule?.folder_path,
+      });
+      const s = await runAccountScheduleNow(scheduleTarget.id);
+      setSchedule(s);
+      setSchedEnabled(s.enabled);
+      setInfoSeverity("success");
+      setInfo(tf("accounts", "scheduleRunQueued", { id: String(s.job_id ?? s.last_job_id ?? "") }));
+      await refresh();
     } catch (err: unknown) {
       setError(
         String(
@@ -647,9 +681,15 @@ export default function AccountsPage() {
                         {tab === "active" ? (
                           <>
                             {(a.is_mine !== false || isStaff) && (
-                              <Tooltip title={t("accounts", "scheduleTooltip")}>
+                              <Tooltip
+                                title={
+                                  a.schedule_enabled
+                                    ? t("accounts", "scheduleTooltipActive")
+                                    : t("accounts", "scheduleTooltip")
+                                }
+                              >
                                 <IconButton
-                                  color="primary"
+                                  color={a.schedule_enabled ? "success" : "default"}
                                   onClick={() => openSchedule(a)}
                                   aria-label={t("accounts", "scheduleTooltip")}
                                   size="small"
@@ -940,6 +980,13 @@ export default function AccountsPage() {
         <DialogActions>
           <Button onClick={() => setScheduleTarget(null)} disabled={loading}>
             {t("common", "cancel")}
+          </Button>
+          <Button
+            onClick={runScheduleNow}
+            disabled={loading || !schedEnabled}
+            color="secondary"
+          >
+            {t("accounts", "scheduleRunNow")}
           </Button>
           <Button variant="contained" onClick={saveSchedule} disabled={loading}>
             {t("common", "save")}

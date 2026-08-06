@@ -264,10 +264,12 @@ class ListAccountsUseCase:
         account_repo: SqlAlchemyMailAccountRepository,
         user_repo: SqlAlchemyUserRepository | None = None,
         archived_repo: SqlAlchemyArchivedMailRepository | None = None,
+        schedule_repo: Any | None = None,
     ) -> None:
         self.account_repo = account_repo
         self.user_repo = user_repo
         self.archived_repo = archived_repo
+        self.schedule_repo = schedule_repo
 
     def execute(
         self,
@@ -293,6 +295,10 @@ class ListAccountsUseCase:
         if self.user_repo is not None and role in (UserRole.ADMIN, UserRole.SUPERVISOR):
             owners = {u.id: u for u in self.user_repo.list_by_tenant(tenant_id)}
 
+        scheduled: set[int] = set()
+        if self.schedule_repo is not None and filt != "unlinked":
+            scheduled = self.schedule_repo.list_enabled_account_ids(tenant_id)
+
         items: list[dict] = []
         for a in accounts:
             cfg = getattr(a, "config", None) or {}
@@ -317,6 +323,7 @@ class ListAccountsUseCase:
                 "imap_ssl": None,
                 "imap_username": None,
                 "archived_count": archived_count,
+                "schedule_enabled": a.id in scheduled,
             }
             if a.provider == MailProviderType.IMAP.value and isinstance(cfg, dict):
                 item["imap_host"] = cfg.get("host")
@@ -999,6 +1006,19 @@ class ArchiveSingleMessageUseCase:
         if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
             raise AuthorizationError("No puede archivar con esta cuenta")
 
+        existing = self.archived_repo.get_by_provider_message_id(tenant_id, account_id, message_id)
+        if existing is not None:
+            return self._handle_already_archived(
+                account=account,
+                existing=existing,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                account_id=account_id,
+                message_id=message_id,
+                folder_id=folder_id,
+                delete_after_archive=delete_after_archive,
+            )
+
         def _persist(tokens: dict[str, Any]) -> None:
             self.account_repo.update_credentials(tenant_id, account_id, self.cipher.encrypt_dict(tokens))
 
@@ -1011,6 +1031,34 @@ class ArchiveSingleMessageUseCase:
         provider.connect()
         try:
             raw = provider.download_message(message_id, folder=folder_id)
+            # Re-check after download (scheduled job may have archived meanwhile)
+            existing = self.archived_repo.get_by_provider_message_id(
+                tenant_id, account_id, raw.provider_message_id or message_id
+            )
+            if existing is not None:
+                deleted = bool(existing.deleted_from_provider)
+                if delete_after_archive and not deleted:
+                    provider.delete_message(message_id, folder=folder_id)
+                    self.archived_repo.mark_deleted_from_provider(tenant_id, existing.id)
+                    deleted = True
+                    self.audit_repo.add(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        action="mail.deleted_from_provider",
+                        resource_type="archived_mail",
+                        resource_id=existing.id,
+                        details={"account_id": account_id},
+                    )
+                return {
+                    "id": existing.id,
+                    "subject": existing.subject,
+                    "size_bytes": existing.size_bytes,
+                    "content_sha256": existing.content_sha256,
+                    "deleted_from_provider": deleted,
+                    "storage_path": existing.storage_path,
+                    "already_archived": True,
+                }
+
             mail_id = str(uuid.uuid4())
             stored = self.storage.save_message(
                 tenant_id=tenant_id,
@@ -1018,50 +1066,97 @@ class ArchiveSingleMessageUseCase:
                 mail_id=mail_id,
                 raw=raw,
             )
-            deleted = False
-            if delete_after_archive:
-                provider.delete_message(message_id, folder=folder_id)
-                deleted = True
-            self.archived_repo.create(
-                mail_id=mail_id,
-                tenant_id=tenant_id,
-                account_id=account_id,
-                user_id=user_id,
-                provider_message_id=raw.provider_message_id,
-                folder_path=(folder_path or raw.folder or folder_id or ""),
-                subject=raw.subject,
-                from_address=raw.from_address,
-                to_addresses=",".join(raw.to_addresses),
-                cc_addresses=",".join(raw.cc_addresses),
-                sent_at=raw.sent_at,
-                received_at=raw.received_at,
-                has_attachments=raw.has_attachments,
-                size_bytes=raw.size_bytes,
-                content_sha256=stored.content_sha256,
-                storage_path=stored.relative_dir,
-                body_preview=raw.body_preview,
-                body_text=raw.body_text,
-                attachment_names=",".join(a.filename for a in raw.attachments),
-                deleted_from_provider=deleted,
-                attachments=[
-                    {
-                        "filename": a.filename,
-                        "content_type": a.content_type,
-                        "size_bytes": a.size_bytes,
-                        "sha256": a.sha256,
-                        "storage_path": a.relative_path,
-                    }
-                    for a in stored.attachments
-                ],
-            )
+            try:
+                self.archived_repo.create(
+                    mail_id=mail_id,
+                    tenant_id=tenant_id,
+                    account_id=account_id,
+                    user_id=user_id,
+                    provider_message_id=raw.provider_message_id,
+                    folder_path=(folder_path or raw.folder or folder_id or ""),
+                    subject=raw.subject,
+                    from_address=raw.from_address,
+                    to_addresses=",".join(raw.to_addresses),
+                    cc_addresses=",".join(raw.cc_addresses),
+                    sent_at=raw.sent_at,
+                    received_at=raw.received_at,
+                    has_attachments=raw.has_attachments,
+                    size_bytes=raw.size_bytes,
+                    content_sha256=stored.content_sha256,
+                    storage_path=stored.relative_dir,
+                    body_preview=raw.body_preview,
+                    body_text=raw.body_text,
+                    attachment_names=",".join(a.filename for a in raw.attachments),
+                    deleted_from_provider=False,
+                    attachments=[
+                        {
+                            "filename": a.filename,
+                            "content_type": a.content_type,
+                            "size_bytes": a.size_bytes,
+                            "sha256": a.sha256,
+                            "storage_path": a.relative_path,
+                        }
+                        for a in stored.attachments
+                    ],
+                )
+            except Exception as exc:
+                # Race: another worker inserted the same provider_message_id
+                from sqlalchemy.exc import IntegrityError
+
+                if not isinstance(exc, IntegrityError):
+                    raise
+                logger.info(
+                    "Archive race: message already archived account=%s msg=%s",
+                    account_id,
+                    message_id,
+                )
+                self.archived_repo._db.rollback()
+                raced = self.archived_repo.get_by_provider_message_id(
+                    tenant_id, account_id, raw.provider_message_id or message_id
+                )
+                if raced is None:
+                    raise
+                deleted = bool(raced.deleted_from_provider)
+                if delete_after_archive and not deleted:
+                    provider.delete_message(message_id, folder=folder_id)
+                    self.archived_repo.mark_deleted_from_provider(tenant_id, raced.id)
+                    deleted = True
+                return {
+                    "id": raced.id,
+                    "subject": raced.subject,
+                    "size_bytes": raced.size_bytes,
+                    "content_sha256": raced.content_sha256,
+                    "deleted_from_provider": deleted,
+                    "storage_path": raced.storage_path,
+                    "already_archived": True,
+                }
+
+            # Persist before provider delete / further I/O to release SQLite write lock
+            from app.infrastructure.persistence.database import commit_with_retry
+
             self.audit_repo.add(
                 tenant_id=tenant_id,
                 user_id=user_id,
                 action="mail.archived",
                 resource_type="archived_mail",
                 resource_id=mail_id,
-                details={"account_id": account_id, "deleted_from_provider": deleted},
+                details={"account_id": account_id, "deleted_from_provider": False},
             )
+            commit_with_retry(self.archived_repo._db)
+
+            deleted = False
+            if delete_after_archive:
+                provider.delete_message(message_id, folder=folder_id)
+                self.archived_repo.mark_deleted_from_provider(tenant_id, mail_id)
+                deleted = True
+                self.audit_repo.add(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    action="mail.deleted_from_provider",
+                    resource_type="archived_mail",
+                    resource_id=mail_id,
+                    details={"account_id": account_id},
+                )
             return {
                 "id": mail_id,
                 "subject": raw.subject,
@@ -1069,9 +1164,66 @@ class ArchiveSingleMessageUseCase:
                 "content_sha256": stored.content_sha256,
                 "deleted_from_provider": deleted,
                 "storage_path": stored.relative_dir,
+                "already_archived": False,
             }
         finally:
             provider.disconnect()
+
+    def _handle_already_archived(
+        self,
+        *,
+        account: Any,
+        existing: Any,
+        tenant_id: int,
+        user_id: int,
+        account_id: int,
+        message_id: str,
+        folder_id: str | None,
+        delete_after_archive: bool,
+    ) -> dict:
+        deleted = bool(existing.deleted_from_provider)
+        if delete_after_archive and not deleted:
+            def _persist(tokens: dict[str, Any]) -> None:
+                self.account_repo.update_credentials(
+                    tenant_id, account_id, self.cipher.encrypt_dict(tokens)
+                )
+
+            provider = self.factory.create(
+                provider=account.provider,
+                config=account.config,
+                credentials_encrypted=account.credentials_encrypted,
+                on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
+            )
+            provider.connect()
+            try:
+                provider.delete_message(message_id, folder=folder_id)
+                self.archived_repo.mark_deleted_from_provider(tenant_id, existing.id)
+                deleted = True
+                self.audit_repo.add(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    action="mail.deleted_from_provider",
+                    resource_type="archived_mail",
+                    resource_id=existing.id,
+                    details={"account_id": account_id},
+                )
+            finally:
+                provider.disconnect()
+        logger.info(
+            "Message already archived account=%s mail=%s delete=%s",
+            account_id,
+            existing.id,
+            deleted,
+        )
+        return {
+            "id": existing.id,
+            "subject": existing.subject,
+            "size_bytes": existing.size_bytes,
+            "content_sha256": existing.content_sha256,
+            "deleted_from_provider": deleted,
+            "storage_path": existing.storage_path,
+            "already_archived": True,
+        }
 
 
 class SearchArchivedMailsUseCase:

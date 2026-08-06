@@ -531,6 +531,7 @@ export type AccountPublic = {
   imap_ssl?: boolean | null;
   imap_username?: string | null;
   archived_count?: number | null;
+  schedule_enabled?: boolean;
 };
 
 export async function listAccounts(opts?: { status?: "active" | "unlinked" }) {
@@ -663,6 +664,13 @@ export async function updateAccountSchedule(
   }
 ) {
   const { data } = await api.put<ArchiveSchedule>(`/api/v1/accounts/${accountId}/schedule`, payload);
+  return data;
+}
+
+export async function runAccountScheduleNow(accountId: number) {
+  const { data } = await api.post<ArchiveSchedule & { job_id?: number | null }>(
+    `/api/v1/accounts/${accountId}/schedule/run`
+  );
   return data;
 }
 
@@ -807,6 +815,7 @@ export async function archiveMessage(payload: {
     content_sha256: string;
     deleted_from_provider: boolean;
     storage_path: string;
+    already_archived?: boolean;
   }>("/api/v1/archive/messages", payload, { timeout: 120000 });
   return data;
 }
@@ -948,12 +957,26 @@ export async function downloadAttachmentToDisk(mailId: string, attachmentId: num
   triggerBlobDownload(blob, filename);
 }
 
+export type ArchiveJobResult = {
+  note?: string | null;
+  archived?: number;
+  skipped_already_archived?: number;
+  failed?: number;
+  archived_bytes?: number;
+  skipped_samples?: { message_id?: string; subject?: string; reason?: string }[];
+  archived_samples?: { message_id?: string; subject?: string }[];
+  failed_samples?: { message_id?: string; subject?: string; error?: string }[];
+  crash?: string;
+};
+
 export type ArchiveJob = {
   id: number;
   account_id: number;
+  account_email?: string | null;
   user_id: number;
   status: string;
   criteria?: Record<string, unknown> | null;
+  result?: ArchiveJobResult | null;
   delete_after_archive: boolean;
   total_messages: number;
   processed_messages: number;

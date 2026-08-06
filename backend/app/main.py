@@ -97,27 +97,38 @@ def _reclaim_orphaned_archive_jobs() -> None:
     """Mark interrupted ``running`` jobs as failed. ``pending`` jobs are left for the dispatcher."""
     from datetime import UTC, datetime
 
-    from sqlalchemy import update
+    from sqlalchemy import select, update
 
     from app.infrastructure.persistence.database import SessionLocal
-    from app.infrastructure.persistence.models import ArchiveJobModel
+    from app.infrastructure.persistence.models import ArchiveJobModel, ArchiveScheduleModel
 
     db = SessionLocal()
     try:
         now = datetime.now(UTC)
-        result = db.execute(
-            update(ArchiveJobModel)
-            .where(ArchiveJobModel.status == "running")
-            .values(
-                status="failed",
-                finished_at=now,
-                updated_at=now,
-                error_message="Job interrumpido: reinicio del servicio API (worker en memoria perdido)",
-            )
+        orphaned = list(
+            db.scalars(select(ArchiveJobModel).where(ArchiveJobModel.status == "running")).all()
         )
+        if not orphaned:
+            return
+        for job in orphaned:
+            job.status = "failed"
+            job.finished_at = now
+            job.updated_at = now
+            job.error_message = (
+                "Job interrumpido: reinicio del servicio API (worker en memoria perdido)"
+            )
+            sched = db.scalar(
+                select(ArchiveScheduleModel).where(
+                    ArchiveScheduleModel.tenant_id == job.tenant_id,
+                    ArchiveScheduleModel.account_id == job.account_id,
+                    ArchiveScheduleModel.last_job_id == job.id,
+                )
+            )
+            if sched is not None:
+                sched.last_status = "failed"
+                sched.last_error = job.error_message[:1000]
         db.commit()
-        if result.rowcount:
-            logger.warning("Reclaimed %s orphaned running archive job(s)", result.rowcount)
+        logger.warning("Reclaimed %s orphaned running archive job(s)", len(orphaned))
     except Exception:
         logger.exception("No se pudieron recuperar jobs huérfanos")
         db.rollback()

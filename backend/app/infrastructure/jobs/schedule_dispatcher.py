@@ -42,7 +42,9 @@ def _loop(poll_seconds: float) -> None:
             db = SessionLocal()
             try:
                 _enqueue_due(db)
-                db.commit()
+                from app.infrastructure.persistence.database import commit_with_retry
+
+                commit_with_retry(db)
             except Exception:
                 db.rollback()
                 raise
@@ -53,7 +55,72 @@ def _loop(poll_seconds: float) -> None:
         _stop.wait(poll_seconds)
 
 
+def enqueue_account_schedule_now(db, tenant_id: int, account_id: int) -> int:
+    """Enqueue one scheduled incremental job immediately. Returns job id."""
+    from app.domain.exceptions import NotFoundError, ValidationError
+    from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
+    from app.infrastructure.persistence.repositories.mail_repos import SqlAlchemyMailAccountRepository
+    from app.infrastructure.persistence.repositories.schedule_repo import SqlAlchemyArchiveScheduleRepository
+
+    schedules = SqlAlchemyArchiveScheduleRepository(db)
+    jobs = SqlAlchemyArchiveJobRepository(db)
+    accounts = SqlAlchemyMailAccountRepository(db)
+
+    policy = schedules.get_by_account(tenant_id, account_id)
+    if policy is None or not policy.enabled:
+        raise ValidationError("Activá el archivo programado antes de ejecutarlo")
+
+    account = accounts.get(tenant_id, account_id)
+    if account is None:
+        raise NotFoundError("Cuenta no encontrada")
+    if account.status == AccountStatus.UNLINKED.value or not account.credentials_encrypted:
+        raise ValidationError("La cuenta no tiene credenciales para archivar")
+    if jobs.has_open_for_account(tenant_id, account_id):
+        raise ValidationError("Ya hay un job pendiente o en curso para esta cuenta")
+
+    job_id = _enqueue_one(schedules, jobs, account, policy)
+    logger.info(
+        "Schedule run-now enqueued job=%s account=%s tenant=%s",
+        job_id,
+        account_id,
+        tenant_id,
+    )
+    return job_id
+
+
+def _enqueue_one(schedules, jobs, account, policy) -> int:
+    criteria: dict = {
+        "source": "scheduled_incremental",
+        "folder_id": policy.folder_id,
+        "folder_path": policy.folder_path,
+        "only_with_attachments": bool(policy.only_with_attachments),
+        "limit": int(policy.limit_per_run or 500),
+    }
+    if policy.watermark_at is not None:
+        criteria["date_from"] = policy.watermark_at.isoformat()
+
+    job = jobs.create(
+        tenant_id=policy.tenant_id,
+        user_id=account.user_id,
+        account_id=policy.account_id,
+        criteria=criteria,
+        delete_after_archive=False,
+        total_messages=0,
+        total_bytes=0,
+        status="pending",
+    )
+    schedules.mark_enqueued(
+        policy.tenant_id,
+        policy.account_id,
+        job_id=job.id,
+        interval_minutes=policy.interval_minutes,
+    )
+    return int(job.id)
+
+
 def _enqueue_due(db) -> int:
+    from datetime import timedelta
+
     from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
     from app.infrastructure.persistence.repositories.mail_repos import SqlAlchemyMailAccountRepository
     from app.infrastructure.persistence.repositories.schedule_repo import SqlAlchemyArchiveScheduleRepository
@@ -73,9 +140,6 @@ def _enqueue_due(db) -> int:
                 status="failed",
                 error="Cuenta no encontrada",
             )
-            # push next_run to avoid hot loop
-            from datetime import timedelta
-
             policy.next_run_at = datetime.now(UTC) + timedelta(minutes=max(15, policy.interval_minutes))
             continue
         if account.status == AccountStatus.UNLINKED.value or not account.credentials_encrypted:
@@ -86,48 +150,18 @@ def _enqueue_due(db) -> int:
                 status="skipped",
                 error="Cuenta desvinculada o sin credenciales",
             )
-            from datetime import timedelta
-
             policy.next_run_at = datetime.now(UTC) + timedelta(minutes=max(15, policy.interval_minutes))
             continue
         if jobs.has_open_for_account(policy.tenant_id, policy.account_id):
-            # Busy: retry soon without advancing watermark
-            from datetime import timedelta
-
             policy.next_run_at = datetime.now(UTC) + timedelta(minutes=5)
             policy.last_status = "skipped_busy"
             continue
 
-        criteria: dict = {
-            "source": "scheduled_incremental",
-            "folder_id": policy.folder_id,
-            "folder_path": policy.folder_path,
-            "only_with_attachments": bool(policy.only_with_attachments),
-            "limit": int(policy.limit_per_run or 500),
-        }
-        if policy.watermark_at is not None:
-            criteria["date_from"] = policy.watermark_at.isoformat()
-
-        job = jobs.create(
-            tenant_id=policy.tenant_id,
-            user_id=account.user_id,
-            account_id=policy.account_id,
-            criteria=criteria,
-            delete_after_archive=False,
-            total_messages=0,
-            total_bytes=0,
-            status="pending",
-        )
-        schedules.mark_enqueued(
-            policy.tenant_id,
-            policy.account_id,
-            job_id=job.id,
-            interval_minutes=policy.interval_minutes,
-        )
+        job_id = _enqueue_one(schedules, jobs, account, policy)
         created += 1
         logger.info(
             "Scheduled incremental archive enqueued job=%s account=%s tenant=%s",
-            job.id,
+            job_id,
             policy.account_id,
             policy.tenant_id,
         )

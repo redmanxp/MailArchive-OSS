@@ -62,8 +62,8 @@ def save_logo(settings: Settings, tenant_id: int, kind: str, data: bytes, conten
 
         from PIL import Image
 
-        im = Image.open(BytesIO(data))
-        im = im.convert("RGBA")
+        opened = Image.open(BytesIO(data))
+        im = opened.convert("RGBA")
         # Cap dimension for storage/UI
         max_side = 1024 if kind == "full" else 512
         if max(im.size) > max_side:

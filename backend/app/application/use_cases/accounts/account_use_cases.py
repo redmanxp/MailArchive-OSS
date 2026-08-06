@@ -15,7 +15,7 @@ from app.config import Settings
 from app.domain.enums.providers import AccountStatus
 from app.domain.enums.roles import UserRole
 from app.domain.exceptions import AuthorizationError, DomainError, NotFoundError, ValidationError
-from app.domain.interfaces.mail_provider import ArchiveOptions, MessageQuery
+from app.domain.interfaces.mail_provider import MessageQuery
 from app.domain.interfaces.repositories import IAuditLogRepository
 from app.infrastructure.persistence.repositories.mail_repos import (
     SqlAlchemyArchivedMailRepository,

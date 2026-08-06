@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Install wizard: choose SQLite/MySQL and storage folder (restart required when DB engine changes)
 - In-process archive job dispatcher: `pending` jobs survive API restart; only `running` jobs are marked failed
 - Native full-text search: SQLite FTS5 + MySQL FULLTEXT (migration `0003_mail_fts`), with ILIKE fallback
+- GHCR publish workflow (`mailarchive-api` / `mailarchive-frontend`) and `docker-compose.ghcr.yml`
+- Backend pytest smoke suite + Ruff in CI
 - App-wide i18n (ES/EN) for UI and email templates; language packs under `backend/app/i18n/locales/`
 - Settings tabs: SMTP, templates, language, data/storage (editable), Microsoft 365 OAuth, appearance stub
 - File-based system overrides (`/data/system_overrides.json`) for DB/storage/Graph without editing `.env`

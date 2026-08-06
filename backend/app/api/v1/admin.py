@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps.auth import (
     CurrentUserContext,
-    get_client_meta,
     get_password_hasher,
     map_domain_error,
     require_roles,
@@ -52,7 +51,7 @@ from app.schemas.admin import (
     UpdateUserRequest,
     UserAdminPublic,
 )
-from app.schemas.auth import MessageResponse, UserPublic
+from app.schemas.auth import MessageResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

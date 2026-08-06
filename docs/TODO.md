@@ -37,7 +37,7 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 |---|--------|-----|--------|
 | O1–O5 | CONTRIBUTING, CHANGELOG, CI, BACKUP, upgrade | P0 | Hecho |
 | O6 | CoC + issue/PR templates | P1 | **Hecho** |
-| O7 | GHCR / Docker Hub image | P1 | Pendiente |
+| O7 | GHCR / Docker Hub image | P1 | **Hecho** (workflow `publish-ghcr.yml` + `docker-compose.ghcr.yml`) |
 | O8 | Ko-fi real | P2 | Placeholder |
 
 ---
@@ -57,9 +57,9 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 
 | # | Tarea | Pri | Estado |
 |---|--------|-----|--------|
-| Q1 | Tests backend | P1 | Pendiente |
+| Q1 | Tests backend | P1 | **Parcial** (pytest smoke: health, install status, FTS helpers) |
 | Q2 | Playwright e2e | P2 | Diferido |
-| Q3 | Ruff/mypy/ESLint en CI | P1 | Parcial (tsc + import + docker build) |
+| Q3 | Ruff/mypy/ESLint en CI | P1 | **Parcial** (Ruff + pytest + tsc; ESLint/mypy luego) |
 
 ---
 

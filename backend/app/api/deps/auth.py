@@ -15,10 +15,6 @@ from app.domain.enums.roles import UserRole
 from app.domain.exceptions import AuthenticationError, AuthorizationError
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.repositories.sqlalchemy_repos import (
-    SqlAlchemyAuditLogRepository,
-    SqlAlchemyInstallRepository,
-    SqlAlchemyRefreshTokenRepository,
-    SqlAlchemyTenantRepository,
     SqlAlchemyUserRepository,
 )
 from app.infrastructure.security.argon2_hasher import Argon2PasswordHasher

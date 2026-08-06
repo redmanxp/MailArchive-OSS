@@ -7,7 +7,6 @@ Tenant overrides for email copy stay under ``smtp_config.email_templates``.
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Any
 
 from app.i18n import get_email_templates as pack_email_templates

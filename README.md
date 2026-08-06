@@ -87,6 +87,21 @@ docker compose up --build
 
 Optional MySQL: `docker compose --profile mysql up --build` and set `DB_ENGINE=mysql` in `.env`.
 
+### Pre-built images (GHCR)
+
+On each push to `main` (and on version tags), CI publishes:
+
+- `ghcr.io/<owner>/mailarchive-api`
+- `ghcr.io/<owner>/mailarchive-frontend`
+
+```bash
+export GHCR_OWNER=redmanxp   # or your fork owner
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Private packages require `docker login ghcr.io`.
+
 ## Development
 
 ```bash
@@ -134,9 +149,10 @@ deploy/      systemd / nginx examples
 - [x] Docker deployment (API + UI)
 - [x] Multi-language (ES/EN) UI + email packs
 - [x] Editable SMTP templates
-- [ ] Full-text search (beyond basic filters)
-- [ ] CI, CONTRIBUTING, CHANGELOG for public release
-- [ ] Backup / upgrade documentation
+- [x] Full-text search (SQLite FTS5 / MySQL FULLTEXT)
+- [x] CI, CONTRIBUTING, CHANGELOG for public release
+- [x] Backup / upgrade documentation
+- [x] GHCR image publish
 
 See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
 
@@ -145,7 +161,7 @@ See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
 - Gmail support planned
 - S3 / object storage option
 - Advanced reports / dashboard metrics
-- Durable background worker for archive jobs
+- External queue worker (Redis/Celery) for multi-node
 
 ### Future
 

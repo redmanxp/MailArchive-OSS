@@ -10,9 +10,14 @@ cd backend
 uv venv .venv --python 3.12   # or python3 -m venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # ruff, pytest
 export PYTHONPATH=$PWD
 cp ../.env.example ../.env    # fill secrets
 uvicorn app.main:app --host 0.0.0.0 --port 18100
+
+# Checks
+ruff check app tests
+pytest -q
 
 # Frontend
 cd frontend

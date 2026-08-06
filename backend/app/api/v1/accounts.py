@@ -146,7 +146,7 @@ def microsoft_oauth_callback(
         )
     except DomainError as exc:
         return RedirectResponse(f"{frontend}/app/accounts?error={str(exc)}")
-    except Exception as exc:
+    except Exception:
         return RedirectResponse(f"{frontend}/app/accounts?error=oauth_failed")
 
 

@@ -418,4 +418,15 @@ En paralelo se puede ir abriendo LICENSE + scrub CRÍTICO (parte FASE 3/9) si pr
 
 ---
 
+## 23. Ideas de producto (backlog)
+
+| Idea | Notas | Prioridad sugerida |
+|------|--------|--------------------|
+| **Branding por tenant** | Upload de logo + colores (primario / acento) + nombre visible; guardar en `tenant_settings` (+ archivo en storage); aplicar tema MUI / favicon en FE | v1.1 (MEJORA UX / white-label) |
+| **Plantillas email editables** | Invite + reset con placeholders; defaults ES/EN; UI en Configuración (hecho en prep OSS); i18n UI completa pendiente | v1.0 / FASE 2 |
+| **i18n UI ES/EN** | Catálogo `frontend/src/i18n/` iniciado (settings); extender al resto de pantallas | FASE 2 |
+
+---
+
 *Generado en FASE 1 — auditoría. No se modificó código de aplicación.*
+*Actualizado: pasos críticos 1–2 hechos; branding anotado en §23.*

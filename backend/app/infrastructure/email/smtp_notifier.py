@@ -1,4 +1,8 @@
-"""SMTP email sender (Mailcow / relay)."""
+"""SMTP notifier — send invite / password-reset messages via any SMTP relay.
+
+Uses tenant ``smtp_config`` (host, credentials, from_*) and optional
+``email_templates`` overrides (see ``templates.py``). Never logs passwords.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +14,22 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from app.domain.interfaces.notifier import EmailResult, INotifier
+from app.infrastructure.email.templates import merge_email_templates, render_template
 
 logger = logging.getLogger(__name__)
 
 
-def _cta_html(*, greeting: str, intro: str, button_label: str, url: str, footer: str) -> str:
+def _cta_html(
+    *,
+    greeting: str,
+    intro: str,
+    button_label: str,
+    url: str,
+    footer: str,
+    link_fallback: str,
+    brand: str,
+) -> str:
+    """Minimal HTML email with a single CTA button (table layout for clients)."""
     safe_url = html.escape(url, quote=True)
     return f"""\
 <!DOCTYPE html>
@@ -25,7 +40,7 @@ def _cta_html(*, greeting: str, intro: str, button_label: str, url: str, footer:
     <tr>
       <td align="center">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border:1px solid #d5dee5;border-radius:8px;padding:28px 24px;">
-          <tr><td style="font-size:20px;font-weight:700;color:#0B3D5C;padding-bottom:12px;">MailArchive</td></tr>
+          <tr><td style="font-size:20px;font-weight:700;color:#0B3D5C;padding-bottom:12px;">{html.escape(brand)}</td></tr>
           <tr><td style="font-size:15px;line-height:1.5;padding-bottom:8px;">{html.escape(greeting)}</td></tr>
           <tr><td style="font-size:15px;line-height:1.5;padding-bottom:22px;">{html.escape(intro)}</td></tr>
           <tr>
@@ -39,7 +54,7 @@ def _cta_html(*, greeting: str, intro: str, button_label: str, url: str, footer:
           <tr><td style="font-size:13px;line-height:1.5;color:#5a6b7c;padding-bottom:8px;">{html.escape(footer)}</td></tr>
           <tr>
             <td style="font-size:12px;line-height:1.4;color:#8a9aab;word-break:break-all;">
-              Si el botón no funciona, copiá este enlace:<br/>
+              {html.escape(link_fallback)}<br/>
               <a href="{safe_url}" style="color:#0B3D5C;">{safe_url}</a>
             </td>
           </tr>
@@ -53,8 +68,20 @@ def _cta_html(*, greeting: str, intro: str, button_label: str, url: str, footer:
 
 
 class SmtpNotifier(INotifier):
+    """INotifier implementation backed by smtplib.
+
+    ``smtp_config`` keys: host, port, user, password, from_email, from_name,
+    starttls, enabled, email_templates (optional).
+    """
+
     def __init__(self, smtp_config: dict | None) -> None:
         self._cfg = smtp_config or {}
+
+    def _templates(self) -> dict:
+        return merge_email_templates(self._cfg.get("email_templates"))
+
+    def _brand(self) -> str:
+        return str(self._cfg.get("from_name") or "MailArchive")
 
     def _send(
         self,
@@ -92,6 +119,7 @@ class SmtpNotifier(INotifier):
 
         try:
             logger.info("Enviando email SMTP a=%s host=%s html=%s", to_email, host, bool(body_html))
+            # Port 465 → implicit TLS; otherwise STARTTLS when enabled (typical 587).
             if use_tls and port == 465:
                 context = ssl.create_default_context()
                 with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as server:
@@ -119,39 +147,49 @@ class SmtpNotifier(INotifier):
         tenant_slug: str,
         setup_url: str | None = None,
     ) -> EmailResult:
+        """New-user email. Prefer *setup_url* (48h set-password link); never put a clear password in HTML when the link flow is used."""
+        brand = self._brand()
+        tpl = self._templates()["invite"]
+        vars_ = {
+            "name": name,
+            "email": to_email,
+            "tenant_slug": tenant_slug,
+            "url": setup_url or login_url,
+            "app_name": brand,
+        }
+        subject = render_template(tpl["subject"], **vars_)
+        greeting = render_template(tpl["greeting"], **vars_)
+        intro = render_template(tpl["intro"], **vars_)
+        button = render_template(tpl["button_label"], **vars_)
+        footer = render_template(tpl["footer"], **vars_)
+        link_fallback = render_template(tpl.get("link_fallback", "Link:"), **vars_)
+
         if setup_url:
             body = (
-                f"Hola {name},\n\n"
-                f"Se creó tu usuario en MailArchive.\n\n"
-                f"Para definir tu contraseña, abrí este enlace (válido 48 horas):\n"
-                f"{setup_url}\n\n"
-                f"Organización: {tenant_slug}\n"
-                f"Email: {to_email}\n\n"
-                f"Si no solicitaste esto, ignorá el mensaje.\n\n"
-                f"— MailArchive\n"
+                f"{greeting}\n\n{intro}\n\n{setup_url}\n\n"
+                f"{footer}\n\n— {brand}\n"
             )
             html_body = _cta_html(
-                greeting=f"Hola {name},",
-                intro=(
-                    f"Se creó tu usuario en MailArchive (organización: {tenant_slug}). "
-                    "Hacé clic en el botón para definir tu contraseña. El enlace vale 48 horas."
-                ),
-                button_label="Definir contraseña",
+                greeting=greeting,
+                intro=intro,
+                button_label=button,
                 url=setup_url,
-                footer=f"Email: {to_email}. Si no solicitaste esto, ignorá el mensaje.",
+                footer=footer,
+                link_fallback=link_fallback,
+                brand=brand,
             )
-            return self._send(to_email, "Acceso a MailArchive", body, html_body)
+            return self._send(to_email, subject, body, html_body)
 
+        # Legacy fallback: plaintext with temporary password (avoid when possible).
         body = (
-            f"Hola {name},\n\n"
-            f"Se creó tu usuario en MailArchive.\n\n"
+            f"{greeting}\n\n"
             f"URL: {login_url}\n"
             f"Tenant: {tenant_slug}\n"
             f"Email: {to_email}\n"
             f"Contraseña: {password or '(definila al ingresar)'}\n\n"
-            f"— MailArchive\n"
+            f"— {brand}\n"
         )
-        return self._send(to_email, "Acceso a MailArchive", body)
+        return self._send(to_email, subject, body)
 
     def send_password_reset(
         self,
@@ -162,39 +200,47 @@ class SmtpNotifier(INotifier):
         login_url: str,
         reset_url: str | None = None,
     ) -> EmailResult:
+        """Password-reset email; prefer *reset_url* link over sending a password."""
+        brand = self._brand()
+        tpl = self._templates()["reset"]
+        vars_ = {
+            "name": name,
+            "email": to_email,
+            "tenant_slug": "",
+            "url": reset_url or login_url,
+            "app_name": brand,
+        }
+        subject = render_template(tpl["subject"], **vars_)
+        greeting = render_template(tpl["greeting"], **vars_)
+        intro = render_template(tpl["intro"], **vars_)
+        button = render_template(tpl["button_label"], **vars_)
+        footer = render_template(tpl["footer"], **vars_)
+        link_fallback = render_template(tpl.get("link_fallback", "Link:"), **vars_)
+
         if reset_url:
-            body = (
-                f"Hola {name},\n\n"
-                f"Recibimos un pedido para restablecer tu contraseña de MailArchive.\n\n"
-                f"Abrí este enlace (válido 48 horas):\n"
-                f"{reset_url}\n\n"
-                f"Email: {to_email}\n\n"
-                f"Si no fuiste vos, ignorá este mensaje.\n\n"
-                f"— MailArchive\n"
-            )
+            body = f"{greeting}\n\n{intro}\n\n{reset_url}\n\n{footer}\n\n— {brand}\n"
             html_body = _cta_html(
-                greeting=f"Hola {name},",
-                intro=(
-                    "Recibimos un pedido para restablecer tu contraseña de MailArchive. "
-                    "Hacé clic en el botón para elegir una nueva (válido 48 horas)."
-                ),
-                button_label="Restablecer contraseña",
+                greeting=greeting,
+                intro=intro,
+                button_label=button,
                 url=reset_url,
-                footer=f"Email: {to_email}. Si no fuiste vos, ignorá este mensaje.",
+                footer=footer,
+                link_fallback=link_fallback,
+                brand=brand,
             )
-            return self._send(to_email, "Restablecer contraseña — MailArchive", body, html_body)
+            return self._send(to_email, subject, body, html_body)
 
         body = (
-            f"Hola {name},\n\n"
-            f"Tu contraseña de MailArchive fue restablecida.\n\n"
+            f"{greeting}\n\n"
             f"URL: {login_url}\n"
             f"Email: {to_email}\n"
             f"Nueva contraseña: {password or ''}\n\n"
-            f"— MailArchive\n"
+            f"— {brand}\n"
         )
-        return self._send(to_email, "Restablecer contraseña — MailArchive", body)
+        return self._send(to_email, subject, body)
 
     def test_connection(self) -> EmailResult:
+        """Login-only probe (does not send a message)."""
         if not self._cfg:
             return EmailResult(ok=False, detail="SMTP no configurado")
         host = self._cfg.get("host", "")

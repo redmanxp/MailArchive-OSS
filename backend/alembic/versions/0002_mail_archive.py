@@ -1,4 +1,7 @@
-"""Add mail archive tables (accounts, mails, attachments, jobs)."""
+"""Add mail archive tables: accounts, archived_mails, attachments, archive_jobs.
+
+Depends on ``0001_phase0``. Same ``_bi()`` helper as phase 0 for SQLite PKs.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +14,17 @@ branch_labels = None
 depends_on = None
 
 
+def _bi():
+    """BIGINT on MySQL/MariaDB; INTEGER on SQLite for working AUTOINCREMENT."""
+    return sa.BigInteger().with_variant(sa.Integer(), "sqlite")
+
+
 def upgrade() -> None:
     op.create_table(
         "mail_accounts",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("user_id", _bi(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("provider", sa.String(length=32), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("display_name", sa.String(length=255), nullable=True),
@@ -42,9 +50,9 @@ def upgrade() -> None:
     op.create_table(
         "archived_mails",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
-        sa.Column("account_id", sa.BigInteger(), sa.ForeignKey("mail_accounts.id"), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("account_id", _bi(), sa.ForeignKey("mail_accounts.id"), nullable=False),
+        sa.Column("user_id", _bi(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("provider_message_id", sa.String(length=512), nullable=False),
         sa.Column("folder_path", sa.String(length=512), nullable=False),
         sa.Column("subject", sa.String(length=998), nullable=False),
@@ -54,7 +62,7 @@ def upgrade() -> None:
         sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("received_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("has_attachments", sa.Boolean(), nullable=False),
-        sa.Column("size_bytes", sa.BigInteger(), nullable=False),
+        sa.Column("size_bytes", _bi(), nullable=False),
         sa.Column("content_sha256", sa.String(length=64), nullable=False),
         sa.Column("storage_path", sa.String(length=1024), nullable=False),
         sa.Column("body_preview", sa.String(length=500), nullable=True),
@@ -77,12 +85,12 @@ def upgrade() -> None:
 
     op.create_table(
         "attachments",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("archived_mail_id", sa.String(length=36), sa.ForeignKey("archived_mails.id"), nullable=False),
         sa.Column("filename", sa.String(length=512), nullable=False),
         sa.Column("content_type", sa.String(length=255), nullable=False),
-        sa.Column("size_bytes", sa.BigInteger(), nullable=False),
+        sa.Column("size_bytes", _bi(), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
         sa.Column("storage_path", sa.String(length=1024), nullable=False),
     )
@@ -91,10 +99,10 @@ def upgrade() -> None:
 
     op.create_table(
         "archive_jobs",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("account_id", sa.BigInteger(), sa.ForeignKey("mail_accounts.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("user_id", _bi(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("account_id", _bi(), sa.ForeignKey("mail_accounts.id"), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("criteria", sa.JSON(), nullable=True),
         sa.Column("delete_after_archive", sa.Boolean(), nullable=False),
@@ -103,8 +111,8 @@ def upgrade() -> None:
         sa.Column("archived_messages", sa.Integer(), nullable=False),
         sa.Column("skipped_messages", sa.Integer(), nullable=False),
         sa.Column("failed_messages", sa.Integer(), nullable=False),
-        sa.Column("total_bytes", sa.BigInteger(), nullable=False),
-        sa.Column("archived_bytes", sa.BigInteger(), nullable=False),
+        sa.Column("total_bytes", _bi(), nullable=False),
+        sa.Column("archived_bytes", _bi(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),

@@ -1,13 +1,12 @@
 import { useMemo } from "react";
 import { Box, Paper, Typography } from "@mui/material";
+import { useLocale } from "../i18n/LocaleContext";
 
 type Props = {
   text?: string | null;
   html?: string | null;
   isHtml?: boolean;
-  /** Altura mínima del visor (px o CSS). */
   minHeight?: number | string;
-  /** Altura máxima del visor. */
   maxHeight?: number | string;
 };
 
@@ -30,6 +29,7 @@ export default function MailBodyViewer({
   minHeight = 360,
   maxHeight = "60vh",
 }: Props) {
+  const { t } = useLocale();
   const showHtml = Boolean(isHtml && html) || Boolean(html && html.length > 40);
   const srcDoc = useMemo(() => (showHtml && html ? wrapHtmlDocument(html) : ""), [showHtml, html]);
 
@@ -48,12 +48,12 @@ export default function MailBodyViewer({
       >
         <Box sx={{ px: 1.5, py: 0.75, borderBottom: "1px solid", borderColor: "divider", bgcolor: "grey.50" }}>
           <Typography variant="caption" color="text.secondary">
-            Vista HTML
+            {t("mailBody", "htmlView")}
           </Typography>
         </Box>
         <Box
           component="iframe"
-          title="Cuerpo del correo"
+          title={t("mailBody", "iframeTitle")}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           srcDoc={srcDoc}
           sx={{
@@ -82,7 +82,7 @@ export default function MailBodyViewer({
         lineHeight: 1.5,
       }}
     >
-      {text || "(sin texto)"}
+      {text || t("mailBody", "noText")}
     </Paper>
   );
 }

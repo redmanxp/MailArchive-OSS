@@ -55,9 +55,10 @@ class Settings(BaseSettings):
     install_admin_email: str = "admin@example.com"
     install_admin_name: str = "Administrator"
 
-    # Public self-register from login page (invite/reset link). Off by default for OSS.
+    # Public self-register from the login page (invite/reset link). Off by default for OSS.
     feature_public_register: bool = False
 
+    # In-process limiter for login/register/install (see app.api.rate_limit).
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 20
     rate_limit_window_seconds: int = 60

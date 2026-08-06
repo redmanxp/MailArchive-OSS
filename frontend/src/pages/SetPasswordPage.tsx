@@ -12,8 +12,10 @@ import {
   Typography,
 } from "@mui/material";
 import { completePasswordLink, previewPasswordLink } from "../api/client";
+import { useLocale } from "../i18n/LocaleContext";
 
 export default function SetPasswordPage() {
+  const { t } = useLocale();
   const [params] = useSearchParams();
   const token = params.get("token") || "";
   const navigate = useNavigate();
@@ -29,7 +31,7 @@ export default function SetPasswordPage() {
 
   useEffect(() => {
     if (!token) {
-      setError("Enlace inválido: falta el token");
+      setError(t("setPassword", "missingToken"));
       setLoading(false);
       return;
     }
@@ -43,22 +45,22 @@ export default function SetPasswordPage() {
         setError(
           String(
             (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-              "El enlace no es válido o expiró"
+              t("setPassword", "invalidToken")
           )
         );
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, t]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (password !== password2) {
-      setError("Las contraseñas no coinciden");
+      setError(t("setPassword", "mismatch"));
       return;
     }
     if (!password.trim()) {
-      setError("La contraseña es obligatoria");
+      setError(t("setPassword", "required"));
       return;
     }
     setSaving(true);
@@ -70,7 +72,7 @@ export default function SetPasswordPage() {
       setError(
         String(
           (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-            "No se pudo guardar la contraseña"
+            t("setPassword", "failed")
         )
       );
     } finally {
@@ -78,7 +80,7 @@ export default function SetPasswordPage() {
     }
   }
 
-  const title = purpose === "reset" ? "Restablecer contraseña" : "Definir contraseña";
+  const title = purpose === "reset" ? t("setPassword", "titleReset") : t("setPassword", "titleSet");
 
   return (
     <Box
@@ -121,7 +123,7 @@ export default function SetPasswordPage() {
               {!error || password ? (
                 <Stack component="form" spacing={2} onSubmit={onSubmit}>
                   <TextField
-                    label="Nueva contraseña"
+                    label={t("setPassword", "newPassword")}
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -129,7 +131,7 @@ export default function SetPasswordPage() {
                     disabled={!!info}
                   />
                   <TextField
-                    label="Repetir contraseña"
+                    label={t("setPassword", "confirmPassword")}
                     type="password"
                     value={password2}
                     onChange={(e) => setPassword2(e.target.value)}
@@ -137,12 +139,12 @@ export default function SetPasswordPage() {
                     disabled={!!info}
                   />
                   <Button type="submit" variant="contained" disabled={saving || !!info || !token}>
-                    {saving ? "Guardando…" : "Guardar contraseña"}
+                    {saving ? t("setPassword", "submitting") : t("setPassword", "submit")}
                   </Button>
                 </Stack>
               ) : null}
               <Button component={RouterLink} to="/login" sx={{ mt: 2 }}>
-                Ir al login
+                {t("setPassword", "goLogin")}
               </Button>
             </>
           )}

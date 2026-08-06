@@ -45,7 +45,35 @@ class ResetPasswordRequest(BaseModel):
     send_email: bool = True
 
 
+class EmailTemplateBlock(BaseModel):
+    """One email kind (invite or reset): subject + body fragments for HTML CTA."""
+
+    subject: str = ""
+    greeting: str = ""
+    intro: str = ""
+    button_label: str = ""
+    footer: str = ""
+    link_fallback: str = ""
+
+
+class EmailTemplatesPublic(BaseModel):
+    """Tenant email copy for the active locale. Placeholders: {name} {email} {tenant_slug} {url} {app_name}."""
+
+    locale: str = "es"
+    invite: EmailTemplateBlock = Field(default_factory=EmailTemplateBlock)
+    reset: EmailTemplateBlock = Field(default_factory=EmailTemplateBlock)
+
+
+class LocaleOption(BaseModel):
+    """Discovered language pack (from locales/*.json on disk)."""
+
+    code: str
+    name: str
+
+
 class SmtpSettingsPublic(BaseModel):
+    """SMTP settings returned to admins (password never included)."""
+
     host: str = ""
     port: int = 587
     user: str = ""
@@ -54,9 +82,14 @@ class SmtpSettingsPublic(BaseModel):
     starttls: bool = True
     enabled: bool = True
     configured: bool = False
+    email_templates: EmailTemplatesPublic = Field(default_factory=EmailTemplatesPublic)
+    available_locales: list[LocaleOption] = Field(default_factory=list)
+    ui_locale: str = "es"
 
 
 class SmtpSettingsUpdate(BaseModel):
+    """Partial SMTP update. Omit password to keep the stored Fernet ciphertext."""
+
     host: str | None = None
     port: int | None = 587
     user: str | None = None
@@ -65,6 +98,7 @@ class SmtpSettingsUpdate(BaseModel):
     from_name: str | None = None
     starttls: bool | None = True
     enabled: bool | None = True
+    email_templates: EmailTemplatesPublic | None = None
 
 
 class SmtpTestRequest(BaseModel):
@@ -79,3 +113,16 @@ class SmtpTestRequest(BaseModel):
 class SmtpTestResponse(BaseModel):
     ok: bool
     detail: str
+
+
+class SystemSettingsPublic(BaseModel):
+    """Non-secret runtime data/storage config for admins (read-only until editable UI ships)."""
+
+    app_env: str
+    db_engine: str
+    database_label: str
+    mysql_host: str | None = None
+    mysql_port: int | None = None
+    mysql_database: str | None = None
+    storage_root: str
+    editable: bool = False

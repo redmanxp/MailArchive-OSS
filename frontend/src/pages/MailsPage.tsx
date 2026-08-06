@@ -31,9 +31,11 @@ import DownloadIcon from "@mui/icons-material/Download";
 import RestoreIcon from "@mui/icons-material/Restore";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import AppLayout from "../layouts/AppLayout";
+import PageShell from "../components/PageShell";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MailBodyViewer from "../components/MailBodyViewer";
 import { useAuth } from "../auth/AuthContext";
+import { useLocale } from "../i18n/LocaleContext";
 import {
   bulkDownloadArchivedMailsToDisk,
   bulkRestoreArchivedMails,
@@ -65,6 +67,7 @@ const fieldSx = {
 
 export default function MailsPage() {
   const { user } = useAuth();
+  const { t, tf } = useLocale();
   const [q, setQ] = useState("");
   const [fromAddress, setFromAddress] = useState("");
   const [accountId, setAccountId] = useState<number | "">("");
@@ -86,6 +89,7 @@ export default function MailsPage() {
 
   const canRestore = user?.role !== "readonly";
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const noSubject = t("mails", "noSubject", "(sin asunto)");
 
   const pageAllChecked = mails.length > 0 && mails.every((m) => selected.has(m.id));
   const pageSomeChecked = mails.some((m) => selected.has(m.id)) && !pageAllChecked;
@@ -119,7 +123,12 @@ export default function MailsPage() {
       setTotal(r.total);
       setPage(nextPage);
     } catch (err: unknown) {
-      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error"));
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -163,13 +172,16 @@ export default function MailsPage() {
       const r = await searchMailIds({ ...filterParams, limit: 2000 });
       setSelected(new Set(r.ids));
       if (r.total > r.ids.length) {
-        setInfo(`Se marcaron ${r.ids.length} de ${r.total} (máx. 2000).`);
+        setInfo(tf("mails", "markedPartial", { n: r.ids.length, total: r.total }));
       } else {
-        setInfo(`Se marcaron ${r.ids.length} correo${r.ids.length === 1 ? "" : "s"} filtrados.`);
+        setInfo(tf("mails", "markedAll", { n: r.ids.length }));
       }
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al marcar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "markError")
+        )
       );
     } finally {
       setBusy(false);
@@ -181,7 +193,12 @@ export default function MailsPage() {
     try {
       setDetail(await getArchivedMail(id));
     } catch (err: unknown) {
-      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error"));
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
+      );
     }
   }
 
@@ -190,10 +207,13 @@ export default function MailsPage() {
     setBusy(true);
     try {
       await downloadEmlToDisk(detail.id);
-      setInfo("Descarga EML iniciada");
+      setInfo(t("mails", "emlStarted"));
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al descargar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "downloadError")
+        )
       );
     } finally {
       setBusy(false);
@@ -206,10 +226,13 @@ export default function MailsPage() {
     setError(null);
     try {
       await bulkDownloadArchivedMailsToDisk([...selected]);
-      setInfo(`Descarga ZIP de ${selected.size} correo(s) iniciada.`);
+      setInfo(tf("mails", "zipStarted", { n: selected.size }));
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al descargar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "downloadError")
+        )
       );
     } finally {
       setBusy(false);
@@ -229,11 +252,14 @@ export default function MailsPage() {
         next.delete(detail.id);
         return next;
       });
-      setInfo(`Restaurado en «${r.folder}» y eliminado del archivo local.`);
+      setInfo(tf("mails", "restoredOne", { folder: r.folder }));
       await load(page);
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al restaurar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "restoreError")
+        )
       );
     } finally {
       setBusy(false);
@@ -252,13 +278,16 @@ export default function MailsPage() {
       const failN = r.failed?.length || 0;
       setInfo(
         failN
-          ? `Restaurados ${r.restored} de ${r.requested}. Fallaron ${failN}.`
-          : `Restaurados ${r.restored} correo(s) y quitados del archivo local.`
+          ? tf("mails", "restoredPartial", { ok: r.restored, total: r.requested, fail: failN })
+          : tf("mails", "restoredBulk", { n: r.restored })
       );
       await load(1);
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al restaurar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "restoreError")
+        )
       );
     } finally {
       setBusy(false);
@@ -267,250 +296,265 @@ export default function MailsPage() {
 
   return (
     <AppLayout>
-      <Typography variant="h5" sx={{ mb: 0.5 }}>
-        Correos archivados
-      </Typography>
-      <Typography color="text.secondary" variant="body2" sx={{ mb: 1.5 }}>
-        Buscá, seleccioná varios para descargar (ZIP) o restaurar. Fechas: original y archivado.
-      </Typography>
-      {error && (
-        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      {info && (
-        <Alert severity="success" sx={{ mb: 1 }} onClose={() => setInfo(null)}>
-          {info}
-        </Alert>
-      )}
-
-      <Paper
-        component="form"
-        onSubmit={onSearch}
-        elevation={0}
-        sx={{
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          p: 1.25,
-          mb: 1,
-          border: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-        }}
-      >
-        <Stack spacing={1}>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-            <TextField
-              size="small"
-              label="Texto"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              fullWidth
-              placeholder="asunto, cuerpo…"
-              sx={fieldSx}
-            />
-            <TextField
-              size="small"
-              label="Remitente"
-              value={fromAddress}
-              onChange={(e) => setFromAddress(e.target.value)}
-              fullWidth
-              sx={fieldSx}
-            />
-            <TextField
-              size="small"
-              select
-              label="Cuenta"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : "")}
-              sx={{ ...fieldSx, minWidth: { md: 200 } }}
-              fullWidth
-            >
-              <MenuItem value="">Todas</MenuItem>
-              {accounts.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  {a.email}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} flexWrap="wrap">
-            <TextField
-              size="small"
-              label="Desde"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ ...fieldSx, maxWidth: { sm: 150 } }}
-            />
-            <TextField
-              size="small"
-              label="Hasta"
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ ...fieldSx, maxWidth: { sm: 150 } }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={onlyAttachments}
-                  onChange={(e) => setOnlyAttachments(e.target.checked)}
-                />
-              }
-              label={<Typography variant="body2">Adjuntos</Typography>}
-              sx={{ mr: 1, ml: 0.5 }}
-            />
-            <Button type="submit" size="small" variant="contained" disabled={loading} sx={{ minWidth: 88 }}>
-              {loading ? "…" : "Buscar"}
-            </Button>
-            <Typography variant="caption" color="text.secondary">
-              {total} resultado{total === 1 ? "" : "s"}
-              {selected.size > 0 ? ` · ${selected.size} sel.` : ""}
-            </Typography>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-            <Button size="small" onClick={() => selectAllFiltered()} disabled={busy || total === 0}>
-              Marcar todos (filtrados)
-            </Button>
-            <Button size="small" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
-              Desmarcar
-            </Button>
-            <Tooltip title="Descargar seleccionados (ZIP)">
-              <span>
-                <IconButton
-                  color="primary"
-                  size="small"
-                  disabled={selected.size === 0 || busy}
-                  onClick={onBulkDownload}
-                  aria-label="Descargar masivo"
-                >
-                  <DownloadIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            {canRestore && (
-              <Tooltip title="Restaurar seleccionados">
-                <span>
-                  <IconButton
-                    color="primary"
-                    size="small"
-                    disabled={selected.size === 0 || busy}
-                    onClick={() => setBulkRestoreOpen(true)}
-                    aria-label="Restaurar masivo"
-                  >
-                    <RestoreIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
+      <PageShell
+        title={t("mails", "title")}
+        subtitle={t("mails", "subtitle")}
+        alerts={
+          <>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)}>
+                {error}
+              </Alert>
             )}
-          </Stack>
-        </Stack>
-      </Paper>
-
-      <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
-        <TableContainer sx={{ maxHeight: "calc(100vh - 320px)" }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox" sx={{ py: 0.5 }}>
-                  <Checkbox
-                    size="small"
-                    checked={pageAllChecked}
-                    indeterminate={pageSomeChecked}
-                    onChange={(e) => togglePage(e.target.checked)}
-                  />
-                </TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600 }}>Asunto</TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 160 }}>De</TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 118, whiteSpace: "nowrap" }}>Fecha</TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 118, whiteSpace: "nowrap" }}>Archivado</TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 72 }}>Tam.</TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 40 }} align="center">
-                  Adj
-                </TableCell>
-                <TableCell sx={{ py: 0.75, fontWeight: 600, width: 48 }} align="right">
-                  {" "}
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {mails.map((m) => (
-                <TableRow key={m.id} hover selected={selected.has(m.id)}>
-                  <TableCell padding="checkbox" sx={{ py: 0.5 }}>
-                    <Checkbox size="small" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5, maxWidth: 0 }}>
-                    <Typography variant="body2" noWrap title={m.subject || "(sin asunto)"}>
-                      {m.subject || "(sin asunto)"}
-                    </Typography>
-                    {m.body_preview && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        display="block"
-                        noWrap
-                        title={m.body_preview}
+            {info && (
+              <Alert severity="success" onClose={() => setInfo(null)} sx={{ mt: error ? 1 : 0 }}>
+                {info}
+              </Alert>
+            )}
+          </>
+        }
+        filters={
+          <Paper
+            component="form"
+            onSubmit={onSearch}
+            elevation={0}
+            sx={{
+              p: 1.25,
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+            }}
+          >
+            <Stack spacing={1}>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                <TextField
+                  size="small"
+                  label={t("mails", "text")}
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  fullWidth
+                  placeholder={t("mails", "textPlaceholder")}
+                  sx={fieldSx}
+                />
+                <TextField
+                  size="small"
+                  label={t("mails", "from")}
+                  value={fromAddress}
+                  onChange={(e) => setFromAddress(e.target.value)}
+                  fullWidth
+                  sx={fieldSx}
+                />
+                <TextField
+                  size="small"
+                  select
+                  label={t("mails", "account")}
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : "")}
+                  sx={{ ...fieldSx, minWidth: { md: 200 } }}
+                  fullWidth
+                >
+                  <MenuItem value="">{t("common", "all")}</MenuItem>
+                  {accounts.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.email}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                alignItems={{ sm: "center" }}
+                flexWrap="wrap"
+              >
+                <TextField
+                  size="small"
+                  label={t("mails", "dateFrom")}
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ ...fieldSx, maxWidth: { sm: 150 } }}
+                />
+                <TextField
+                  size="small"
+                  label={t("mails", "dateTo")}
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ ...fieldSx, maxWidth: { sm: 150 } }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={onlyAttachments}
+                      onChange={(e) => setOnlyAttachments(e.target.checked)}
+                    />
+                  }
+                  label={<Typography variant="body2">{t("mails", "attachmentsOnly")}</Typography>}
+                  sx={{ mr: 1, ml: 0.5 }}
+                />
+                <Button type="submit" size="small" variant="contained" disabled={loading} sx={{ minWidth: 88 }}>
+                  {loading ? "…" : t("common", "search")}
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  {tf("mails", "results", { total, selected: selected.size })}
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                <Button size="small" onClick={() => selectAllFiltered()} disabled={busy || total === 0}>
+                  {t("mails", "selectFiltered")}
+                </Button>
+                <Button size="small" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
+                  {t("mails", "deselect")}
+                </Button>
+                <Tooltip title={t("mails", "downloadZip")}>
+                  <span>
+                    <IconButton
+                      color="primary"
+                      size="small"
+                      disabled={selected.size === 0 || busy}
+                      onClick={onBulkDownload}
+                      aria-label={t("mails", "downloadZip")}
+                    >
+                      <DownloadIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                {canRestore && (
+                  <Tooltip title={t("mails", "restoreSelected")}>
+                    <span>
+                      <IconButton
+                        color="primary"
+                        size="small"
+                        disabled={selected.size === 0 || busy}
+                        onClick={() => setBulkRestoreOpen(true)}
+                        aria-label={t("mails", "restoreSelected")}
                       >
-                        {m.body_preview}
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Typography variant="caption" noWrap display="block" title={m.from_address}>
-                      {m.from_address}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5, whiteSpace: "nowrap" }}>
-                    <Typography variant="caption">{formatDateTimeShort(m.sent_at)}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5, whiteSpace: "nowrap" }}>
-                    <Typography variant="caption">{formatDateTimeShort(m.archived_at)}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Typography variant="caption">{formatBytes(m.size_bytes)}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }} align="center">
-                    <Typography variant="caption">{m.has_attachments ? "Sí" : "—"}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }} align="right">
-                    <Tooltip title="Ver">
-                      <IconButton size="small" onClick={() => openDetail(m.id)} aria-label="Ver">
-                        <VisibilityIcon fontSize="small" />
+                        <RestoreIcon />
                       </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {mails.length === 0 && (
+                    </span>
+                  </Tooltip>
+                )}
+              </Stack>
+            </Stack>
+          </Paper>
+        }
+        footer={
+          total > PAGE_SIZE ? (
+            <Stack direction="row" justifyContent="center">
+              <Pagination
+                size="small"
+                count={pageCount}
+                page={page}
+                onChange={(_, p) => load(p)}
+                disabled={loading}
+                color="primary"
+              />
+            </Stack>
+          ) : null
+        }
+      >
+        <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
+          <TableContainer>
+            <Table size="small" stickyHeader>
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={8}>
-                    <Typography color="text.secondary" variant="body2">
-                      No hay correos archivados.
-                    </Typography>
+                  <TableCell padding="checkbox" sx={{ py: 0.5 }}>
+                    <Checkbox
+                      size="small"
+                      checked={pageAllChecked}
+                      indeterminate={pageSomeChecked}
+                      onChange={(e) => togglePage(e.target.checked)}
+                    />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600 }}>{t("mails", "subject")}</TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 160 }}>{t("mails", "fromCol")}</TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 118, whiteSpace: "nowrap" }}>
+                    {t("mails", "date")}
+                  </TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 118, whiteSpace: "nowrap" }}>
+                    {t("mails", "archivedAt")}
+                  </TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 72 }}>{t("mails", "size")}</TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 40 }} align="center">
+                    {t("mails", "att")}
+                  </TableCell>
+                  <TableCell sx={{ py: 0.75, fontWeight: 600, width: 48 }} align="right">
+                    {" "}
                   </TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        {total > PAGE_SIZE && (
-          <Stack direction="row" justifyContent="center" sx={{ py: 1 }}>
-            <Pagination
-              size="small"
-              count={pageCount}
-              page={page}
-              onChange={(_, p) => load(p)}
-              disabled={loading}
-              color="primary"
-            />
-          </Stack>
-        )}
-      </Paper>
+              </TableHead>
+              <TableBody>
+                {mails.map((m) => (
+                  <TableRow key={m.id} hover selected={selected.has(m.id)}>
+                    <TableCell padding="checkbox" sx={{ py: 0.5 }}>
+                      <Checkbox size="small" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5, maxWidth: 0 }}>
+                      <Typography variant="body2" noWrap title={m.subject || noSubject}>
+                        {m.subject || noSubject}
+                      </Typography>
+                      {m.body_preview && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          display="block"
+                          noWrap
+                          title={m.body_preview}
+                        >
+                          {m.body_preview}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5 }}>
+                      <Typography variant="caption" noWrap display="block" title={m.from_address}>
+                        {m.from_address}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5, whiteSpace: "nowrap" }}>
+                      <Typography variant="caption">{formatDateTimeShort(m.sent_at)}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5, whiteSpace: "nowrap" }}>
+                      <Typography variant="caption">{formatDateTimeShort(m.archived_at)}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5 }}>
+                      <Typography variant="caption">{formatBytes(m.size_bytes)}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5 }} align="center">
+                      <Typography variant="caption">
+                        {m.has_attachments ? t("common", "yes") : t("common", "emptyDash")}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 0.5 }} align="right">
+                      <Tooltip title={t("mails", "view", "Ver")}>
+                        <IconButton
+                          size="small"
+                          onClick={() => openDetail(m.id)}
+                          aria-label={t("mails", "view", "Ver")}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {mails.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8}>
+                      <Typography color="text.secondary" variant="body2">
+                        {t("mails", "empty")}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </PageShell>
 
       <Dialog
         open={!!detail}
@@ -519,7 +563,7 @@ export default function MailsPage() {
         maxWidth="lg"
         PaperProps={{ sx: { minHeight: "82vh" } }}
       >
-        <DialogTitle sx={{ py: 1.5, pr: 6 }}>{detail?.subject || "(sin asunto)"}</DialogTitle>
+        <DialogTitle sx={{ py: 1.5, pr: 6 }}>{detail?.subject || noSubject}</DialogTitle>
         <DialogContent dividers sx={{ pt: 1.5 }}>
           {detail && (
             <Stack spacing={1.5}>
@@ -533,40 +577,43 @@ export default function MailsPage() {
               >
                 <Box>
                   <Typography variant="body2">
-                    <strong>De:</strong> {detail.from_address}
+                    <strong>{t("mails", "fromCol")}:</strong> {detail.from_address}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Para:</strong> {detail.to_addresses || "—"}
+                    <strong>{t("mails", "to")}:</strong> {detail.to_addresses || t("common", "emptyDash")}
                   </Typography>
                   {detail.cc_addresses && (
                     <Typography variant="body2">
-                      <strong>CC:</strong> {detail.cc_addresses}
+                      <strong>{t("mails", "cc")}:</strong> {detail.cc_addresses}
                     </Typography>
                   )}
                   <Typography variant="body2">
-                    <strong>Carpeta:</strong> {detail.folder_path || "—"}
+                    <strong>{t("mails", "folder")}:</strong> {detail.folder_path || t("common", "emptyDash")}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="body2">
-                    <strong>Fecha mail:</strong> {formatDateTime(detail.sent_at || detail.received_at)}
+                    <strong>{t("mails", "mailDate")}:</strong>{" "}
+                    {formatDateTime(detail.sent_at || detail.received_at)}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Archivado:</strong> {formatDateTime(detail.archived_at)}
+                    <strong>{t("mails", "archivedAt")}:</strong> {formatDateTime(detail.archived_at)}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Tamaño:</strong> {formatBytes(detail.size_bytes)}
+                    <strong>{t("mails", "size")}:</strong> {formatBytes(detail.size_bytes)}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>SHA256:</strong> {detail.content_sha256?.slice(0, 16)}…
+                    <strong>{t("mails", "sha256")}:</strong> {detail.content_sha256?.slice(0, 16)}…
                   </Typography>
                 </Box>
               </Box>
               {detail.deleted_from_provider && (
-                <Alert severity="warning">Fue borrado del proveedor al archivar.</Alert>
+                <Alert severity="warning">{t("mails", "wasDeleted")}</Alert>
               )}
               {detail.restored_at && (
-                <Alert severity="info">Restaurado el {formatDateTime(detail.restored_at)}</Alert>
+                <Alert severity="info">
+                  {tf("mails", "restoredAt", { date: formatDateTime(detail.restored_at) })}
+                </Alert>
               )}
               <Divider />
               <MailBodyViewer
@@ -578,25 +625,25 @@ export default function MailsPage() {
               />
               {detail.attachments?.length > 0 && (
                 <>
-                  <Typography variant="subtitle2">Adjuntos</Typography>
+                  <Typography variant="subtitle2">{t("mails", "attachments")}</Typography>
                   <Stack spacing={0.5}>
                     {detail.attachments.map((a) => (
                       <Stack key={a.id} direction="row" justifyContent="space-between" alignItems="center">
                         <Typography variant="body2">
                           {a.filename} ({formatBytes(a.size_bytes)})
                         </Typography>
-                        <Tooltip title="Descargar adjunto">
+                        <Tooltip title={t("mails", "downloadAttachment", "Descargar adjunto")}>
                           <IconButton
                             size="small"
-                            aria-label="Descargar adjunto"
+                            aria-label={t("mails", "downloadAttachment", "Descargar adjunto")}
                             onClick={async () => {
                               try {
                                 await downloadAttachmentToDisk(detail.id, a.id);
                               } catch (err: unknown) {
                                 setError(
                                   String(
-                                    (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-                                      "Error adjunto"
+                                    (err as { response?: { data?: { detail?: string } } })?.response?.data
+                                      ?.detail || t("mails", "attachmentError", "Error adjunto")
                                   )
                                 );
                               }
@@ -614,26 +661,26 @@ export default function MailsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Tooltip title="Cerrar">
-            <IconButton onClick={() => setDetail(null)} aria-label="Cerrar">
+          <Tooltip title={t("common", "close")}>
+            <IconButton onClick={() => setDetail(null)} aria-label={t("common", "close")}>
               <CloseIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Descargar EML">
+          <Tooltip title={t("mails", "downloadEml")}>
             <span>
-              <IconButton onClick={onDownloadEml} disabled={busy} aria-label="Descargar EML">
+              <IconButton onClick={onDownloadEml} disabled={busy} aria-label={t("mails", "downloadEml")}>
                 <DownloadIcon />
               </IconButton>
             </span>
           </Tooltip>
           {canRestore && (
-            <Tooltip title="Restaurar al proveedor">
+            <Tooltip title={t("mails", "restore")}>
               <span>
                 <IconButton
                   color="primary"
                   onClick={() => setRestoreOpen(true)}
                   disabled={busy}
-                  aria-label="Restaurar al proveedor"
+                  aria-label={t("mails", "restore")}
                 >
                   <RestoreIcon />
                 </IconButton>
@@ -645,9 +692,9 @@ export default function MailsPage() {
 
       <ConfirmDialog
         open={restoreOpen}
-        title="Restaurar correo"
-        message={`Se restaurará «${detail?.subject || "(sin asunto)"}» en la carpeta MailArchive y se eliminará del archivo local.`}
-        confirmLabel="Restaurar y quitar del archivo"
+        title={t("mails", "restoreTitle")}
+        message={t("mails", "restoreMessage")}
+        confirmLabel={t("mails", "restoreConfirm", "Restaurar y quitar del archivo")}
         confirmColor="primary"
         loading={busy}
         onCancel={() => !busy && setRestoreOpen(false)}
@@ -656,9 +703,9 @@ export default function MailsPage() {
 
       <ConfirmDialog
         open={bulkRestoreOpen}
-        title="Restaurar seleccionados"
-        message={`Se restaurarán ${selected.size} correo(s) en MailArchive y se eliminarán del archivo local. ¿Continuar?`}
-        confirmLabel="Restaurar seleccionados"
+        title={t("mails", "bulkRestoreTitle")}
+        message={tf("mails", "bulkRestoreMessage", { n: selected.size })}
+        confirmLabel={t("mails", "restoreSelected")}
         confirmColor="primary"
         loading={busy}
         onCancel={() => !busy && setBulkRestoreOpen(false)}

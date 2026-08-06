@@ -1,4 +1,14 @@
-"""Run Alembic migrations programmatically at API startup."""
+"""Apply Alembic migrations when the API process starts.
+
+Why run migrations here
+-----------------------
+Docker / one-command installs should not require a separate ``alembic upgrade``
+step. We still keep ``create_all`` as a safety net in ``main.py`` for edge cases.
+
+Legacy DBs created only with ``create_all`` have no ``alembic_version`` row.
+In that case we *stamp* the matching revision(s) instead of re-running CREATE
+TABLE (which would fail).
+"""
 
 from __future__ import annotations
 
@@ -12,14 +22,16 @@ from sqlalchemy.engine import Engine
 
 logger = logging.getLogger("mailarchive.migrate")
 
+# .../backend/app/infrastructure/persistence/migrate.py → backend/
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 def run_migrations(engine: Engine) -> None:
-    """Apply Alembic migrations to head.
+    """Bring the database to Alembic ``head``.
 
-    If the DB was bootstrapped earlier with ``create_all`` (no alembic_version),
-    stamp ``0001_phase0`` when core tables already exist so ``0002`` can apply.
+    Stamp path (legacy create_all DBs):
+      * core tables, no version table → stamp ``0001_phase0``
+      * mail tables already present → stamp ``0002_mail_archive`` and return
     """
     alembic_ini = BACKEND_ROOT / "alembic.ini"
     cfg = Config(str(alembic_ini))

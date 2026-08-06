@@ -11,8 +11,10 @@ import {
   Typography,
 } from "@mui/material";
 import { selfRegister } from "../api/client";
+import { useLocale } from "../i18n/LocaleContext";
 
 export default function RegisterPage() {
+  const { t } = useLocale();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -34,7 +36,7 @@ export default function RegisterPage() {
       setError(
         String(
           (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-            "No se pudo crear el usuario"
+            t("register", "failed")
         )
       );
     } finally {
@@ -57,11 +59,10 @@ export default function RegisterPage() {
       <Container maxWidth="sm">
         <Paper elevation={0} sx={{ p: 4, border: "1px solid #d5dee5" }}>
           <Typography variant="h4" gutterBottom>
-            Crear usuario
+            {t("register", "title")}
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Completá tus datos. Te enviamos un enlace por correo para definir tu contraseña
-            (válido 48 horas). Si el email ya existe, recibirás un enlace de recuperación.
+            {t("register", "subtitle")}
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -75,25 +76,30 @@ export default function RegisterPage() {
           )}
           <Stack component="form" spacing={2} onSubmit={onSubmit}>
             <TextField
-              label="Tenant"
+              label={t("register", "tenant")}
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value)}
               required
             />
-            <TextField label="Nombre completo" value={name} onChange={(e) => setName(e.target.value)} required />
             <TextField
-              label="Email laboral"
+              label={t("register", "name")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <TextField
+              label={t("register", "email")}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              helperText="Usá un buzón real: ahí llega el enlace de acceso"
+              helperText={t("register", "emailHint")}
             />
             <Button type="submit" variant="contained" size="large" disabled={loading || !!info}>
-              {loading ? "Enviando…" : "Enviar enlace por email"}
+              {loading ? t("register", "submitting") : t("register", "submit")}
             </Button>
             <Button component={RouterLink} to="/login" disabled={loading}>
-              Volver al login
+              {t("register", "backLogin")}
             </Button>
           </Stack>
         </Paper>

@@ -1,4 +1,8 @@
-"""Phase 0 initial schema."""
+"""Phase 0 initial schema (install, tenants, users, tokens, audit).
+
+SQLite note: use ``_bi()`` so primary keys are INTEGER (AUTOINCREMENT). Plain
+BIGINT PKs on SQLite reject inserts without an explicit id.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,11 @@ branch_labels = None
 depends_on = None
 
 
+def _bi():
+    """BIGINT on MySQL/MariaDB; INTEGER on SQLite for working AUTOINCREMENT."""
+    return sa.BigInteger().with_variant(sa.Integer(), "sqlite")
+
+
 def upgrade() -> None:
     op.create_table(
         "install_state",
@@ -21,11 +30,11 @@ def upgrade() -> None:
     )
     op.create_table(
         "tenants",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("slug", sa.String(length=100), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("storage_quota_bytes", sa.BigInteger(), nullable=True),
+        sa.Column("storage_quota_bytes", _bi(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.UniqueConstraint("slug"),
@@ -33,8 +42,8 @@ def upgrade() -> None:
     op.create_index("ix_tenants_slug", "tenants", ["slug"])
     op.create_table(
         "tenant_settings",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("storage_root", sa.String(length=512), nullable=True),
         sa.Column("retention_days", sa.Integer(), nullable=True),
         sa.Column("smtp_config", sa.JSON(), nullable=True),
@@ -45,8 +54,8 @@ def upgrade() -> None:
     )
     op.create_table(
         "users",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
@@ -62,9 +71,9 @@ def upgrade() -> None:
     op.create_index("ix_users_tenant_id", "users", ["tenant_id"])
     op.create_table(
         "refresh_tokens",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("user_id", _bi(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("token_hash", sa.String(length=128), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
@@ -78,9 +87,9 @@ def upgrade() -> None:
     op.create_index("ix_refresh_tokens_token_hash", "refresh_tokens", ["token_hash"])
     op.create_table(
         "audit_logs",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("tenant_id", sa.BigInteger(), sa.ForeignKey("tenants.id"), nullable=True),
-        sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column("id", _bi(), primary_key=True, autoincrement=True),
+        sa.Column("tenant_id", _bi(), sa.ForeignKey("tenants.id"), nullable=True),
+        sa.Column("user_id", _bi(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("action", sa.String(length=100), nullable=False),
         sa.Column("resource_type", sa.String(length=100), nullable=True),
         sa.Column("resource_id", sa.String(length=100), nullable=True),

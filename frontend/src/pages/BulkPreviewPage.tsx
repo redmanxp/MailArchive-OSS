@@ -27,6 +27,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import AppLayout from "../layouts/AppLayout";
+import PageShell from "../components/PageShell";
 import ConfirmDialog from "../components/ConfirmDialog";
 import BulkPreparingModal from "../components/BulkPreparingModal";
 import MailBodyViewer from "../components/MailBodyViewer";
@@ -37,6 +38,7 @@ import {
   type ProviderMessage,
   type ProviderMessageDetail,
 } from "../api/client";
+import { useLocale } from "../i18n/LocaleContext";
 import { formatDateTime } from "../utils/datetime";
 
 const STORAGE_KEY = "ma_bulk_preview";
@@ -73,6 +75,7 @@ export function loadBulkPreview(): BulkPreviewPayload | null {
 }
 
 export default function BulkPreviewPage() {
+  const { t, tf } = useLocale();
   const navigate = useNavigate();
   const [payload, setPayload] = useState<BulkPreviewPayload | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -146,7 +149,10 @@ export default function BulkPreviewPage() {
       setDetail(d);
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "No se pudo abrir")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("bulkPreview", "openError")
+        )
       );
     } finally {
       setDetailLoading(false);
@@ -171,7 +177,10 @@ export default function BulkPreviewPage() {
       navigate("/app/bulk", { replace: true, state: { startedJobId: job.id } });
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al iniciar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("bulkPreview", "startError")
+        )
       );
     } finally {
       setLoading(false);
@@ -189,139 +198,153 @@ export default function BulkPreviewPage() {
   const allChecked = selected.size === payload.messages.length && payload.messages.length > 0;
   const pageAllChecked = pageRows.length > 0 && pageRows.every((m) => selected.has(m.id));
   const pageSomeChecked = pageRows.some((m) => selected.has(m.id)) && !pageAllChecked;
+  const noSubject = t("bulkPreview", "noSubject");
+  const subtitle = payload.account_email
+    ? `${t("bulkPreview", "subtitle")} · ${payload.account_email}`
+    : t("bulkPreview", "subtitle");
 
   return (
     <AppLayout>
       <BulkPreparingModal
         open={loading}
-        title="Iniciando archivado"
-        message="Creando el proceso. Después seguirá en segundo plano."
+        title={t("bulkPreview", "modalTitle")}
+        message={t("bulkPreview", "modalBody")}
         showCancel={false}
       />
-      <Box
-        sx={{
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          bgcolor: "background.default",
-          pb: 1,
-          mb: 1,
-        }}
-      >
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-          <IconButton onClick={() => navigate("/app/bulk")} aria-label="Volver">
-            <ArrowBackIcon />
-          </IconButton>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h5">Revisión previa</Typography>
-            <Typography color="text.secondary" variant="body2">
-              Desmarcá lo que querés dejar en el servidor. Luego aplicá el archivado.
-              {payload.account_email ? ` · ${payload.account_email}` : ""}
-            </Typography>
-          </Box>
-          <Tooltip title="Iniciar proceso de archivado">
-            <span>
-              <Button
-                variant="contained"
-                color="success"
-                size="large"
-                startIcon={<PlayArrowIcon />}
-                disabled={selected.size === 0 || loading}
-                onClick={() => setConfirm(true)}
-                sx={{ px: 3, py: 1.25, fontSize: "1rem", fontWeight: 600 }}
-              >
-                {loading ? "Iniciando…" : "Iniciar"}
-              </Button>
-            </span>
-          </Tooltip>
-        </Stack>
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
-
-        <Paper sx={{ p: 1.25 }} elevation={0} variant="outlined">
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
-            <Typography variant="body2" sx={{ flex: 1 }}>
-              Seleccionados: <strong>{selected.size}</strong> / {payload.messages.length} ·{" "}
-              {formatBytes(selectedBytes)}
-              {payload.delete_after_archive ? " · se borrarán del proveedor" : " · se conservan en el proveedor"}
-            </Typography>
-            <Button size="small" onClick={() => toggleAll(true)} disabled={allChecked}>
-              Marcar todos
-            </Button>
-            <Button size="small" onClick={() => toggleAll(false)} disabled={selected.size === 0}>
-              Desmarcar todos
-            </Button>
+      <PageShell
+        title={t("bulkPreview", "title")}
+        subtitle={subtitle}
+        actions={
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Tooltip title={t("common", "back")}>
+              <IconButton onClick={() => navigate("/app/bulk")} aria-label={t("common", "back")}>
+                <ArrowBackIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t("bulkPreview", "start")}>
+              <span>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  startIcon={<PlayArrowIcon />}
+                  disabled={selected.size === 0 || loading}
+                  onClick={() => setConfirm(true)}
+                  sx={{ px: 3, py: 1.25, fontSize: "1rem", fontWeight: 600 }}
+                >
+                  {loading ? t("bulkPreview", "starting") : t("bulkPreview", "start")}
+                </Button>
+              </span>
+            </Tooltip>
           </Stack>
-        </Paper>
-      </Box>
-
-      <Paper elevation={0} variant="outlined">
-        <TableContainer sx={{ maxHeight: "calc(100vh - 260px)" }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox" sx={{ bgcolor: "background.paper" }}>
-                  <Checkbox
-                    checked={pageAllChecked}
-                    indeterminate={pageSomeChecked}
-                    onChange={(e) => togglePage(e.target.checked)}
-                  />
-                </TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600 }}>Asunto</TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600 }}>De</TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600 }}>Fecha</TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600, width: 72 }} align="center">
-                  Adj.
-                </TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600 }}>Tamaño</TableCell>
-                <TableCell sx={{ bgcolor: "background.paper", fontWeight: 600 }} align="right">
-                  Ver
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {pageRows.map((m) => (
-                <TableRow key={m.id} hover selected={selected.has(m.id)}>
+        }
+        alerts={
+          error ? (
+            <Alert severity="error" onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          ) : null
+        }
+        filters={
+          <Paper sx={{ p: 1.25 }} elevation={0} variant="outlined">
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+              <Typography variant="body2" sx={{ flex: 1 }}>
+                {tf("bulkPreview", "selected", { n: selected.size })} / {payload.messages.length} ·{" "}
+                {formatBytes(selectedBytes)}
+                {" · "}
+                {payload.delete_after_archive
+                  ? t("bulkPreview", "willDelete")
+                  : t("bulkPreview", "willKeep")}
+              </Typography>
+              <Button size="small" onClick={() => toggleAll(true)} disabled={allChecked}>
+                {t("bulkPreview", "selectAll")}
+              </Button>
+              <Button size="small" onClick={() => toggleAll(false)} disabled={selected.size === 0}>
+                {t("bulkPreview", "deselectAll")}
+              </Button>
+            </Stack>
+          </Paper>
+        }
+        footer={
+          payload.messages.length > PAGE_SIZE ? (
+            <Stack direction="row" justifyContent="center">
+              <Pagination
+                size="small"
+                count={pageCount}
+                page={page}
+                onChange={(_, p) => setPage(p)}
+                color="primary"
+              />
+            </Stack>
+          ) : null
+        }
+      >
+        <Paper elevation={0} variant="outlined">
+          <TableContainer>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
                   <TableCell padding="checkbox">
-                    <Checkbox checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                    <Checkbox
+                      checked={pageAllChecked}
+                      indeterminate={pageSomeChecked}
+                      onChange={(e) => togglePage(e.target.checked)}
+                    />
                   </TableCell>
-                  <TableCell>{m.subject || "(sin asunto)"}</TableCell>
-                  <TableCell>{m.from_address}</TableCell>
-                  <TableCell>{formatDateTime(m.received_at || m.sent_at)}</TableCell>
-                  <TableCell align="center">{m.has_attachments ? "Sí" : "—"}</TableCell>
-                  <TableCell>{formatBytes(m.size_bytes || 0)}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Ver correo">
-                      <IconButton size="small" onClick={() => onView(m)} disabled={detailLoading}>
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulkPreview", "subject")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulkPreview", "from")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulkPreview", "date")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600, width: 72 }} align="center">
+                    {t("bulkPreview", "attachments")}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulkPreview", "size")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }} align="right">
+                    {t("bulkPreview", "view")}
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        {payload.messages.length > PAGE_SIZE && (
-          <Stack direction="row" justifyContent="center" sx={{ py: 1 }}>
-            <Pagination size="small" count={pageCount} page={page} onChange={(_, p) => setPage(p)} color="primary" />
-          </Stack>
-        )}
-      </Paper>
+              </TableHead>
+              <TableBody>
+                {pageRows.map((m) => (
+                  <TableRow key={m.id} hover selected={selected.has(m.id)}>
+                    <TableCell padding="checkbox">
+                      <Checkbox checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                    </TableCell>
+                    <TableCell>{m.subject || noSubject}</TableCell>
+                    <TableCell>{m.from_address}</TableCell>
+                    <TableCell>{formatDateTime(m.received_at || m.sent_at)}</TableCell>
+                    <TableCell align="center">
+                      {m.has_attachments ? t("common", "yes") : t("common", "emptyDash")}
+                    </TableCell>
+                    <TableCell>{formatBytes(m.size_bytes || 0)}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title={t("bulkPreview", "view")}>
+                        <IconButton
+                          size="small"
+                          onClick={() => onView(m)}
+                          disabled={detailLoading}
+                          aria-label={t("bulkPreview", "view")}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </PageShell>
 
       <ConfirmDialog
         open={confirm}
-        title="Aplicar archivado masivo"
+        title={t("bulkPreview", "confirmTitle")}
         message={
           payload.delete_after_archive
-            ? `Se archivarán ${selected.size} mensajes (${formatBytes(selectedBytes)}) y se BORRARÁN del proveedor. Los desmarcados quedan en el servidor. ¿Continuar?`
-            : `Se archivarán ${selected.size} mensajes (${formatBytes(selectedBytes)}). Los desmarcados quedan en el servidor. ¿Continuar?`
+            ? `${tf("bulkPreview", "selected", { n: selected.size })} (${formatBytes(selectedBytes)}). ${t("bulkPreview", "confirmDelete")}`
+            : `${tf("bulkPreview", "selected", { n: selected.size })} (${formatBytes(selectedBytes)}). ${t("bulkPreview", "confirmKeep")}`
         }
-        confirmLabel="Aplicar"
+        confirmLabel={t("bulkPreview", "confirmApply")}
         confirmColor={payload.delete_after_archive ? "warning" : "primary"}
         loading={loading}
         onCancel={() => !loading && setConfirm(false)}
@@ -335,7 +358,7 @@ export default function BulkPreviewPage() {
         maxWidth="md"
         PaperProps={{ sx: { minHeight: "82vh" } }}
       >
-        <DialogTitle sx={{ py: 1.5 }}>{detail?.subject || "(sin asunto)"}</DialogTitle>
+        <DialogTitle sx={{ py: 1.5 }}>{detail?.subject || noSubject}</DialogTitle>
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 1.5, pb: 2 }}>
           {detail && (
             <>
@@ -349,20 +372,22 @@ export default function BulkPreviewPage() {
               >
                 <Box>
                   <Typography variant="body2">
-                    <strong>De:</strong> {detail.from_address}
+                    <strong>{t("bulkPreview", "from")}:</strong> {detail.from_address}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Para:</strong> {(detail.to_addresses || []).join(", ") || "—"}
+                    <strong>{t("bulkPreview", "to")}:</strong>{" "}
+                    {(detail.to_addresses || []).join(", ") || t("common", "emptyDash")}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="body2">
-                    <strong>Fecha:</strong> {formatDateTime(detail.received_at || detail.sent_at)}
+                    <strong>{t("bulkPreview", "date")}:</strong>{" "}
+                    {formatDateTime(detail.received_at || detail.sent_at)}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Tamaño:</strong> {formatBytes(detail.size_bytes || 0)}
-                    {(detail.attachments?.length || detail.has_attachments)
-                      ? ` · ${detail.attachments?.length || "con"} adjunto(s)`
+                    <strong>{t("bulkPreview", "size")}:</strong> {formatBytes(detail.size_bytes || 0)}
+                    {detail.attachments?.length || detail.has_attachments
+                      ? ` · ${detail.attachments?.length || t("common", "yes")} ${t("bulkPreview", "attachmentCount")}`
                       : ""}
                   </Typography>
                 </Box>
@@ -377,7 +402,7 @@ export default function BulkPreviewPage() {
               {(detail.attachments?.length ?? 0) > 0 && (
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                    Adjuntos
+                    {t("bulkPreview", "attachmentsTitle")}
                   </Typography>
                   <Stack spacing={0.5}>
                     {detail.attachments!.map((a) => (
@@ -385,10 +410,10 @@ export default function BulkPreviewPage() {
                         <Typography variant="body2">
                           {a.filename} ({formatBytes(a.size_bytes)})
                         </Typography>
-                        <Tooltip title="Descargar adjunto">
+                        <Tooltip title={t("bulkPreview", "downloadAttachment")}>
                           <IconButton
                             size="small"
-                            aria-label="Descargar adjunto"
+                            aria-label={t("bulkPreview", "downloadAttachment")}
                             onClick={async () => {
                               try {
                                 const folderId =
@@ -405,7 +430,7 @@ export default function BulkPreviewPage() {
                                 setError(
                                   String(
                                     (err as { response?: { data?: { detail?: string } } })?.response?.data
-                                      ?.detail || "Error al descargar adjunto"
+                                      ?.detail || t("bulkPreview", "downloadError")
                                   )
                                 );
                               }
@@ -420,7 +445,7 @@ export default function BulkPreviewPage() {
                 </Box>
               )}
               <Button onClick={() => setDetail(null)} size="small" sx={{ alignSelf: "flex-start" }}>
-                Cerrar
+                {t("common", "close")}
               </Button>
             </>
           )}

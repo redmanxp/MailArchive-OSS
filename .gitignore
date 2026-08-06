@@ -124,7 +124,12 @@ coverage/
 *.lcov
 playwright-report/
 test-results/
+e2e/node_modules/
 
 # --- Cursor / agent local (optional local state) ---
 .cursor/mcp.json
+.cursorrules
+.cursor/rules/
+AGENTS.md
 *.tsbuildinfo
+e2e/

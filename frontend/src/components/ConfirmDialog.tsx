@@ -6,6 +6,7 @@ import {
   DialogContentText,
   DialogTitle,
 } from "@mui/material";
+import { useLocale } from "../i18n/LocaleContext";
 
 type Props = {
   open: boolean;
@@ -23,13 +24,17 @@ export default function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = "Confirmar",
-  cancelLabel = "Cancelar",
+  confirmLabel,
+  cancelLabel,
   confirmColor = "primary",
   loading = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useLocale();
+  const confirm = confirmLabel || t("common", "confirm");
+  const cancel = cancelLabel || t("common", "cancel");
+
   return (
     <Dialog open={open} onClose={loading ? undefined : onCancel} fullWidth maxWidth="xs">
       <DialogTitle>{title}</DialogTitle>
@@ -38,10 +43,10 @@ export default function ConfirmDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel} disabled={loading}>
-          {cancelLabel}
+          {cancel}
         </Button>
         <Button variant="contained" color={confirmColor} onClick={onConfirm} disabled={loading}>
-          {loading ? "Procesando…" : confirmLabel}
+          {loading ? t("common", "processing") : confirm}
         </Button>
       </DialogActions>
     </Dialog>

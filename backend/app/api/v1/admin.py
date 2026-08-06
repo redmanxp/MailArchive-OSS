@@ -44,6 +44,7 @@ from app.schemas.admin import (
     SmtpSettingsUpdate,
     SmtpTestRequest,
     SmtpTestResponse,
+    SystemSettingsPublic,
     UpdateUserRequest,
     UserAdminPublic,
 )
@@ -218,6 +219,8 @@ def get_smtp_settings(
     ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SmtpSettingsPublic:
+    from app.infrastructure.email.templates import default_email_templates, list_available_locales
+
     data = GetSmtpSettingsUseCase(_settings_repo(db, settings)).execute(ctx.user.tenant_id)
     defaults = {
         "host": settings.smtp_host,
@@ -228,9 +231,43 @@ def get_smtp_settings(
         "starttls": settings.smtp_tls,
         "enabled": bool(settings.smtp_host),
         "configured": bool(settings.smtp_host and settings.smtp_user),
+        "email_templates": default_email_templates(),
     }
     merged = {**defaults, **data}
+    if not merged.get("email_templates"):
+        merged["email_templates"] = default_email_templates()
+    merged["available_locales"] = list_available_locales()
     return SmtpSettingsPublic(**merged)
+
+
+@router.get("/settings/system", response_model=SystemSettingsPublic)
+def get_system_settings(
+    ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SystemSettingsPublic:
+    """Expose non-secret DB/storage runtime config (read-only)."""
+    engine = (settings.db_engine or "sqlite").lower().strip()
+    if engine == "sqlite":
+        url = settings.build_database_url()
+        # sqlite:////data/mailarchive.db or sqlite:///./path
+        label = url.split("sqlite:///")[-1] if "sqlite" in url else url
+        return SystemSettingsPublic(
+            app_env=settings.app_env,
+            db_engine="sqlite",
+            database_label=label,
+            storage_root=settings.storage_root,
+            editable=False,
+        )
+    return SystemSettingsPublic(
+        app_env=settings.app_env,
+        db_engine=engine,
+        database_label=settings.mysql_database,
+        mysql_host=settings.mysql_host,
+        mysql_port=settings.mysql_port,
+        mysql_database=settings.mysql_database,
+        storage_root=settings.storage_root,
+        editable=False,
+    )
 
 
 @router.put("/settings/smtp", response_model=SmtpSettingsPublic)
@@ -240,11 +277,24 @@ def update_smtp_settings(
     ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SmtpSettingsPublic:
+    from app.infrastructure.email.templates import default_email_templates, list_available_locales
+
     uc = UpdateSmtpSettingsUseCase(_settings_repo(db, settings), SqlAlchemyAuditLogRepository(db))
     payload = body.model_dump(exclude_unset=True)
     result = uc.execute(tenant_id=ctx.user.tenant_id, actor_user_id=ctx.user.id, payload=payload)
-    defaults = {"host": "", "port": 587, "user": "", "from_email": "", "from_name": "MailArchive", "starttls": True, "enabled": True, "configured": False}
+    defaults = {
+        "host": "",
+        "port": 587,
+        "user": "",
+        "from_email": "",
+        "from_name": "MailArchive",
+        "starttls": True,
+        "enabled": True,
+        "configured": False,
+        "email_templates": default_email_templates(),
+    }
     merged = {**defaults, **result}
+    merged["available_locales"] = list_available_locales()
     return SmtpSettingsPublic(**merged)
 
 

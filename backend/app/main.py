@@ -21,10 +21,34 @@ logger = logging.getLogger("mailarchive")
 
 settings = get_settings()
 
+_WEAK = ("change-me", "changeme", "secret", "password")
+
+
+def _warn_weak_secrets() -> None:
+    if (settings.app_env or "").lower() not in ("production", "prod"):
+        return
+    weak: list[str] = []
+    for name, value in (
+        ("SECRET_KEY", settings.secret_key),
+        ("JWT_SECRET_KEY", settings.jwt_secret_key),
+        ("DATA_ENCRYPTION_KEY", settings.data_encryption_key),
+    ):
+        v = (value or "").lower()
+        if any(w in v for w in _WEAK) or len(value or "") < 16:
+            weak.append(name)
+    if weak:
+        logger.error(
+            "INSECURE production secrets detected (%s). Rotate before exposing the service.",
+            ", ".join(weak),
+        )
+
+
+_warn_weak_secrets()
+
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0-phase0",
-    description="MailArchive API — Fase 0 (install + auth + RBAC)",
+    version="0.9.0",
+    description="MailArchive API — self-hosted email archiving",
 )
 
 app.add_middleware(
@@ -42,7 +66,7 @@ app.include_router(api_router)
 def on_startup() -> None:
     from app.infrastructure.persistence.migrate import run_migrations
 
-    # Prefer Alembic; create_all remains a safety net for empty local DBs.
+    # Prefer Alembic; create_all remains a safety net for empty / partially migrated DBs.
     try:
         run_migrations(engine)
     except Exception:

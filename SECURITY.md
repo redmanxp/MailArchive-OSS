@@ -4,6 +4,10 @@
 
 **Nunca subir secretos a GitHub** (ni a ningún remoto).
 
+## Reportar vulnerabilidades
+
+Abrí un [GitHub Security Advisory](https://github.com/redmanxp/MailArchive-OSS/security/advisories/new) en el repositorio (privado) o contactá al maintainer del proyecto. No publiques exploits en issues abiertos hasta que haya un fix.
+
 ## Qué NO versionar
 
 - `.env` y variantes (excepto `.env.example`)

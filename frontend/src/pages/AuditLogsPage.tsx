@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   Alert,
-  Box,
   Button,
   IconButton,
   Pagination,
@@ -20,13 +19,16 @@ import {
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import SearchIcon from "@mui/icons-material/Search";
 import AppLayout from "../layouts/AppLayout";
+import PageShell from "../components/PageShell";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { clearAuditLogs, listAuditLogs, type AuditLogItem } from "../api/client";
+import { useLocale } from "../i18n/LocaleContext";
 import { formatDateTime } from "../utils/datetime";
 
 const PAGE_SIZE = 25;
 
 export default function AuditLogsPage() {
+  const { t, tf } = useLocale();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -53,7 +55,10 @@ export default function AuditLogsPage() {
       setPage(nextPage);
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error al cargar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("audit", "loadError")
+        )
       );
     } finally {
       setLoading(false);
@@ -81,7 +86,10 @@ export default function AuditLogsPage() {
       setQ("");
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "No se pudo borrar")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("audit", "clearError")
+        )
       );
     } finally {
       setBusy(false);
@@ -90,134 +98,134 @@ export default function AuditLogsPage() {
 
   return (
     <AppLayout>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-        <Box>
-          <Typography variant="h5">Registros de auditoría</Typography>
-          <Typography color="text.secondary" variant="body2">
-            Solo administradores. Buscá por acción, recurso o detalle.
-          </Typography>
-        </Box>
-        <Tooltip title="Borrar todos los registros">
-          <span>
-            <IconButton color="error" onClick={() => setClearOpen(true)} disabled={total === 0 || busy}>
-              <DeleteSweepIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Stack>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      {info && (
-        <Alert severity="success" sx={{ mb: 1 }} onClose={() => setInfo(null)}>
-          {info}
-        </Alert>
-      )}
-
-      <Paper
-        component="form"
-        onSubmit={onSearch}
-        elevation={0}
-        sx={{
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-          p: 1.25,
-          mb: 1,
-          border: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-        }}
+      <PageShell
+        title={t("audit", "title")}
+        subtitle={t("audit", "subtitle")}
+        actions={
+          <Tooltip title={t("audit", "clearTooltip")}>
+            <span>
+              <IconButton color="error" onClick={() => setClearOpen(true)} disabled={total === 0 || busy}>
+                <DeleteSweepIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        }
+        alerts={
+          <>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+            {info && (
+              <Alert severity="success" onClose={() => setInfo(null)} sx={{ mt: error ? 1 : 0 }}>
+                {info}
+              </Alert>
+            )}
+          </>
+        }
+        filters={
+          <Paper
+            component="form"
+            onSubmit={onSearch}
+            elevation={0}
+            sx={{
+              p: 1.25,
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+            }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <TextField
+                size="small"
+                label={t("audit", "search")}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                fullWidth
+                placeholder={t("audit", "searchPlaceholder")}
+              />
+              <Button type="submit" variant="contained" size="small" startIcon={<SearchIcon />} disabled={loading}>
+                {t("audit", "search")}
+              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                {tf("audit", "count", { n: total })}
+              </Typography>
+            </Stack>
+          </Paper>
+        }
+        footer={
+          total > PAGE_SIZE ? (
+            <Stack direction="row" justifyContent="center">
+              <Pagination
+                size="small"
+                count={pageCount}
+                page={page}
+                onChange={(_, p) => load(p)}
+                disabled={loading}
+                color="primary"
+              />
+            </Stack>
+          ) : null
+        }
       >
-        <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            size="small"
-            label="Buscar"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            fullWidth
-            placeholder="acción, recurso, detalle…"
-          />
-          <Button type="submit" variant="contained" size="small" startIcon={<SearchIcon />} disabled={loading}>
-            Buscar
-          </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-            {total} registro{total === 1 ? "" : "s"}
-          </Typography>
-        </Stack>
-      </Paper>
-
-      <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
-        <TableContainer sx={{ maxHeight: "calc(100vh - 260px)" }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, width: 64 }}>ID</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Acción</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 88 }}>Usuario</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Recurso</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Detalle</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 140 }}>Fecha</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((l) => (
-                <TableRow key={l.id} hover>
-                  <TableCell>#{l.id}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2">{l.action}</Typography>
-                  </TableCell>
-                  <TableCell>{l.user_id ?? "—"}</TableCell>
-                  <TableCell>
-                    <Typography variant="caption" display="block">
-                      {l.resource_type || "—"}
-                      {l.resource_id ? ` · ${l.resource_id}` : ""}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 280 }}>
-                    <Typography variant="caption" noWrap title={l.details ? JSON.stringify(l.details) : ""}>
-                      {l.details ? JSON.stringify(l.details) : "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">{formatDateTime(l.created_at)}</Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {items.length === 0 && (
+        <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
+          <TableContainer>
+            <Table size="small" stickyHeader>
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={6}>
-                    <Typography color="text.secondary" variant="body2">
-                      Sin registros.
-                    </Typography>
-                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, width: 64 }}>{t("audit", "id")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("audit", "action")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600, width: 88 }}>{t("audit", "user")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("audit", "resource")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("audit", "detail")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600, width: 140 }}>{t("audit", "date")}</TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        {total > PAGE_SIZE && (
-          <Stack direction="row" justifyContent="center" sx={{ py: 1 }}>
-            <Pagination
-              size="small"
-              count={pageCount}
-              page={page}
-              onChange={(_, p) => load(p)}
-              disabled={loading}
-              color="primary"
-            />
-          </Stack>
-        )}
-      </Paper>
+              </TableHead>
+              <TableBody>
+                {items.map((l) => (
+                  <TableRow key={l.id} hover>
+                    <TableCell>#{l.id}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2">{l.action}</Typography>
+                    </TableCell>
+                    <TableCell>{l.user_id ?? t("common", "emptyDash")}</TableCell>
+                    <TableCell>
+                      <Typography variant="caption" display="block">
+                        {l.resource_type || t("common", "emptyDash")}
+                        {l.resource_id ? ` · ${l.resource_id}` : ""}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>
+                      <Typography variant="caption" noWrap title={l.details ? JSON.stringify(l.details) : ""}>
+                        {l.details ? JSON.stringify(l.details) : t("common", "emptyDash")}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">{formatDateTime(l.created_at)}</Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {items.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Typography color="text.secondary" variant="body2">
+                        {t("audit", "empty")}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </PageShell>
 
       <ConfirmDialog
         open={clearOpen}
-        title="Borrar auditoría"
-        message="Se borrarán TODOS los registros de auditoría de este tenant. Quedará un único registro indicando el borrado. ¿Continuar?"
-        confirmLabel="Borrar todo"
+        title={t("audit", "clearTitle")}
+        message={t("audit", "clearMessage")}
+        confirmLabel={t("audit", "clearConfirm")}
         confirmColor="error"
         loading={busy}
         onCancel={() => !busy && setClearOpen(false)}

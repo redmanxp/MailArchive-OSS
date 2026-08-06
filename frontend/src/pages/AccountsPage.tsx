@@ -1,8 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert,
-  Box,
   Button,
   Dialog,
   DialogActions,
@@ -11,12 +10,14 @@ import {
   FormControlLabel,
   IconButton,
   MenuItem,
+  Pagination,
   Paper,
   Stack,
   Switch,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -26,6 +27,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import AppLayout from "../layouts/AppLayout";
+import PageShell from "../components/PageShell";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -36,21 +38,27 @@ import {
   testImapConnection,
   type AccountPublic,
 } from "../api/client";
-import { accountStatusLabel, providerLabel } from "../utils/labels";
+import { useLocale } from "../i18n/LocaleContext";
+import { useLabels } from "../utils/labels";
 
 type LinkStep = "provider" | "imap";
 type ProviderChoice = "microsoft365" | "imap" | "";
 
+const PAGE_SIZE = 25;
+
 export default function AccountsPage() {
+  const { t, tf } = useLocale();
+  const { providerLabel, accountStatusLabel } = useLabels();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const isStaff = user?.role === "admin" || user?.role === "supervisor";
 
   const [accounts, setAccounts] = useState<AccountPublic[]>([]);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [unlinkId, setUnlinkId] = useState<number | null>(null);
+  const [unlinkTarget, setUnlinkTarget] = useState<AccountPublic | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [linkOpen, setLinkOpen] = useState(false);
@@ -63,18 +71,24 @@ export default function AccountsPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
+  const pageCount = Math.max(1, Math.ceil(accounts.length / PAGE_SIZE));
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return accounts.slice(start, start + PAGE_SIZE);
+  }, [accounts, page]);
+
   useEffect(() => {
     const linked = params.get("linked");
     const email = params.get("email");
     const oauthError = params.get("error");
     if (linked === "1") {
-      setInfo(`Cuenta Microsoft vinculada: ${email || ""}`);
+      setInfo(tf("accounts", "linkedMs", { email: email || "" }));
       navigate("/app/accounts", { replace: true });
     } else if (oauthError) {
-      setError(`Error OAuth: ${oauthError}`);
+      setError(tf("accounts", "oauthError", { error: oauthError }));
       navigate("/app/accounts", { replace: true });
     }
-  }, [params, navigate]);
+  }, [params, navigate, tf]);
 
   async function refresh() {
     setAccounts(await listAccounts());
@@ -82,9 +96,13 @@ export default function AccountsPage() {
 
   useEffect(() => {
     refresh().catch((err) => {
-      setError(err?.response?.data?.detail || "No se pudieron cargar las cuentas");
+      setError(err?.response?.data?.detail || t("accounts", "loadError"));
     });
-  }, []);
+  }, [t]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   function openLinkModal() {
     setProvider("");
@@ -112,7 +130,7 @@ export default function AccountsPage() {
         setError(
           String(
             (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-              "Error OAuth"
+              tf("accounts", "oauthError", { error: t("common", "error") })
           )
         );
         setLoading(false);
@@ -130,10 +148,17 @@ export default function AccountsPage() {
     setInfo(null);
     try {
       const res = await testImapConnection({ host, port, ssl, username, password });
-      setInfo(res.ok ? `IMAP OK (${res.email || username})` : `Falló: ${res.detail}`);
+      setInfo(
+        res.ok
+          ? tf("accounts", "imapOk", { email: res.email || username })
+          : `${t("common", "failedPrefix")}: ${res.detail}`
+      );
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error")
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
       );
     } finally {
       setLoading(false);
@@ -146,35 +171,16 @@ export default function AccountsPage() {
     setError(null);
     try {
       await createImapAccount({ host, port, ssl, username, password });
-      setInfo("Cuenta IMAP guardada");
+      setInfo(t("accounts", "imapSaved"));
       setPassword("");
       setLinkOpen(false);
       setLinkStep("provider");
       await refresh();
     } catch (err: unknown) {
       setError(
-        String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error")
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function confirmUnlink() {
-    if (unlinkId == null) return;
-    setError(null);
-    setInfo(null);
-    setLoading(true);
-    try {
-      await deleteAccount(unlinkId);
-      setInfo("Cuenta desvinculada correctamente.");
-      setUnlinkId(null);
-      await refresh();
-    } catch (err: unknown) {
-      setError(
         String(
           (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-            "No se pudo desvincular"
+            t("common", "error")
         )
       );
     } finally {
@@ -182,135 +188,183 @@ export default function AccountsPage() {
     }
   }
 
-  const title = isStaff ? "Cuentas de correo" : "Mis cuentas de correo";
+  async function confirmUnlink() {
+    if (unlinkTarget == null) return;
+    setError(null);
+    setInfo(null);
+    setLoading(true);
+    try {
+      await deleteAccount(unlinkTarget.id);
+      setInfo(t("accounts", "unlinked"));
+      setUnlinkTarget(null);
+      await refresh();
+    } catch (err: unknown) {
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <AppLayout>
-      {info && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfo(null)}>
-          {info}
-        </Alert>
-      )}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h4">{title}</Typography>
-          <Typography color="text.secondary" variant="body2">
-            {isStaff
-              ? "Cada usuario vincula sus propias cuentas. Como admin/supervisor ves todas las del tenant."
-              : "Podés vincular más de una cuenta (Microsoft 365 o IMAP)."}
-          </Typography>
-        </Box>
-        <Tooltip title="Vincular otra cuenta">
-          <IconButton color="primary" onClick={openLinkModal} aria-label="Vincular cuenta" size="large">
-            <AddIcon />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-
-      <Paper sx={{ p: 0 }} elevation={0}>
-        {accounts.length === 0 ? (
-          <Box sx={{ p: 3 }}>
-            <Typography color="text.secondary">
-              No hay cuentas vinculadas. Usá el botón + para agregar una.
-            </Typography>
-          </Box>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Proveedor</TableCell>
-                <TableCell>Email</TableCell>
-                {isStaff && <TableCell>Usuario</TableCell>}
-                <TableCell>Estado</TableCell>
-                <TableCell align="right">Acciones</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {accounts.map((a) => (
-                <TableRow key={a.id} hover>
-                  <TableCell>{providerLabel(a.provider)}</TableCell>
-                  <TableCell>
-                    {a.email}
-                    {a.is_mine === false ? (
-                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                        (ajena)
-                      </Typography>
-                    ) : null}
-                  </TableCell>
+      <PageShell
+        title={isStaff ? t("accounts", "title") : t("accounts", "titleMine")}
+        subtitle={isStaff ? t("accounts", "subtitleStaff") : t("accounts", "subtitleUser")}
+        actions={
+          <Tooltip title={t("accounts", "linkTooltip")}>
+            <IconButton
+              color="primary"
+              onClick={openLinkModal}
+              aria-label={t("accounts", "linkTitle")}
+              sx={{ border: "1px solid", borderColor: "divider" }}
+            >
+              <AddIcon />
+            </IconButton>
+          </Tooltip>
+        }
+        alerts={
+          <>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+            {info && (
+              <Alert severity="success" onClose={() => setInfo(null)} sx={{ mt: error ? 1 : 0 }}>
+                {info}
+              </Alert>
+            )}
+          </>
+        }
+        footer={
+          accounts.length > PAGE_SIZE ? (
+            <Stack direction="row" justifyContent="center">
+              <Pagination
+                size="small"
+                count={pageCount}
+                page={page}
+                onChange={(_, p) => setPage(p)}
+                color="primary"
+              />
+            </Stack>
+          ) : null
+        }
+      >
+        <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
+          <TableContainer>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("accounts", "provider")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("accounts", "email")}</TableCell>
                   {isStaff && (
+                    <TableCell sx={{ fontWeight: 600 }}>{t("accounts", "owner")}</TableCell>
+                  )}
+                  <TableCell sx={{ fontWeight: 600 }}>{t("accounts", "status")}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>
+                    {t("accounts", "actions")}
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pageItems.map((a) => (
+                  <TableRow key={a.id} hover>
+                    <TableCell>{providerLabel(a.provider)}</TableCell>
                     <TableCell>
-                      {a.owner_name || a.owner_email || `user #${a.user_id}`}
-                      {a.owner_email && a.owner_name ? (
-                        <Typography variant="caption" display="block" color="text.secondary">
-                          {a.owner_email}
+                      {a.email}
+                      {a.is_mine === false ? (
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          {t("accounts", "foreign")}
                         </Typography>
                       ) : null}
                     </TableCell>
-                  )}
-                  <TableCell>
-                    {accountStatusLabel(a.status)}
-                    {a.last_error ? (
-                      <Typography variant="caption" display="block" color="error">
-                        {a.last_error}
-                      </Typography>
-                    ) : null}
-                  </TableCell>
-                  <TableCell align="right">
-                    {(a.is_mine !== false || isStaff) && (
-                      <Tooltip title="Desvincular">
-                        <IconButton
-                          color="error"
-                          onClick={() => setUnlinkId(a.id)}
-                          aria-label="Desvincular"
-                          size="small"
-                        >
-                          <LinkOffIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                    {isStaff && (
+                      <TableCell>
+                        {a.owner_name || a.owner_email || `user #${a.user_id}`}
+                        {a.owner_email && a.owner_name ? (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            {a.owner_email}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
                     )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Paper>
+                    <TableCell>
+                      {accountStatusLabel(a.status)}
+                      {a.last_error ? (
+                        <Typography variant="caption" display="block" color="error">
+                          {a.last_error}
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+                    <TableCell align="right">
+                      {(a.is_mine !== false || isStaff) && (
+                        <Tooltip title={t("accounts", "unlinkTooltip")}>
+                          <IconButton
+                            color="error"
+                            onClick={() => setUnlinkTarget(a)}
+                            aria-label={t("accounts", "unlinkTooltip")}
+                            size="small"
+                          >
+                            <LinkOffIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {accounts.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={isStaff ? 5 : 4}>
+                      <Typography color="text.secondary" variant="body2">
+                        {t("accounts", "empty")}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </PageShell>
 
       <Dialog open={linkOpen} onClose={closeLinkModal} fullWidth maxWidth="sm">
         <DialogTitle>
-          {linkStep === "provider" ? "Vincular cuenta" : "Cuenta IMAP"}
+          {linkStep === "provider" ? t("accounts", "linkTitle") : t("accounts", "imapTitle")}
         </DialogTitle>
         <DialogContent>
           {linkStep === "provider" && (
             <Stack spacing={2} sx={{ pt: 1 }}>
               <Typography color="text.secondary" variant="body2">
-                Elegí el proveedor. La cuenta queda vinculada a tu usuario ({user?.email}).
-                Aunque el mismo buzón ya esté vinculado a otro usuario, debés completar el
-                login/credenciales vos (no se reutilizan tokens ajenos).
+                {t("accounts", "linkHint")}
               </Typography>
               <TextField
                 select
-                label="Proveedor"
+                label={t("accounts", "chooseProvider")}
                 value={provider}
                 onChange={(e) => setProvider(e.target.value as ProviderChoice)}
                 fullWidth
               >
-                <MenuItem value="microsoft365">Microsoft 365</MenuItem>
-                <MenuItem value="imap">IMAP</MenuItem>
+                <MenuItem value="microsoft365">{providerLabel("microsoft365")}</MenuItem>
+                <MenuItem value="imap">{providerLabel("imap")}</MenuItem>
               </TextField>
             </Stack>
           )}
           {linkStep === "imap" && (
             <Stack spacing={2} component="form" id="imap-link-form" onSubmit={onSaveImap} sx={{ pt: 1 }}>
-              <TextField label="Servidor" value={host} onChange={(e) => setHost(e.target.value)} required fullWidth />
               <TextField
-                label="Puerto"
+                label={t("accounts", "host")}
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                required
+                fullWidth
+              />
+              <TextField
+                label={t("accounts", "port")}
                 type="number"
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
@@ -319,17 +373,17 @@ export default function AccountsPage() {
               />
               <FormControlLabel
                 control={<Switch checked={ssl} onChange={(e) => setSsl(e.target.checked)} />}
-                label="SSL"
+                label={t("accounts", "ssl")}
               />
               <TextField
-                label="Usuario"
+                label={t("accounts", "username")}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 fullWidth
               />
               <TextField
-                label="Contraseña"
+                label={t("accounts", "password")}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -343,27 +397,27 @@ export default function AccountsPage() {
           {linkStep === "imap" && (
             <>
               <Button onClick={() => setLinkStep("provider")} disabled={loading}>
-                Atrás
+                {t("common", "back")}
               </Button>
               <Button onClick={onTestImap} disabled={loading}>
-                Probar
+                {t("accounts", "test")}
               </Button>
               <Button type="submit" form="imap-link-form" variant="contained" disabled={loading}>
-                Guardar
+                {t("common", "save")}
               </Button>
             </>
           )}
           {linkStep === "provider" && (
             <>
               <Button onClick={closeLinkModal} disabled={loading}>
-                Cancelar
+                {t("common", "cancel")}
               </Button>
               <Button
                 variant="contained"
                 onClick={onContinueProvider}
                 disabled={loading || !provider}
               >
-                Continuar
+                {t("common", "continue")}
               </Button>
             </>
           )}
@@ -371,13 +425,13 @@ export default function AccountsPage() {
       </Dialog>
 
       <ConfirmDialog
-        open={unlinkId != null}
-        title="Desvincular cuenta"
-        message="¿Desvincular esta cuenta? Se borrarán los tokens guardados."
-        confirmLabel="Desvincular"
+        open={unlinkTarget != null}
+        title={t("accounts", "unlinkTitle")}
+        message={tf("accounts", "unlinkMessage", { email: unlinkTarget?.email || "" })}
+        confirmLabel={t("accounts", "unlinkConfirm")}
         confirmColor="error"
         loading={loading}
-        onCancel={() => !loading && setUnlinkId(null)}
+        onCancel={() => !loading && setUnlinkTarget(null)}
         onConfirm={confirmUnlink}
       />
     </AppLayout>

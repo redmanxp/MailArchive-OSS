@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 class InstallStatusResponse(BaseModel):
     installed: bool
     public_register_enabled: bool = False
+    ui_locale: str = "es"
 
 
 class InstallRequest(BaseModel):
@@ -13,7 +14,7 @@ class InstallRequest(BaseModel):
     tenant_slug: str = Field(min_length=2, max_length=100)
     admin_name: str = Field(min_length=2, max_length=255)
     admin_email: EmailStr
-    admin_password: str | None = Field(default=None, min_length=1, max_length=128)
+    admin_password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class InstallResponse(BaseModel):
@@ -58,7 +59,7 @@ class LogoutRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class ChangePasswordResponse(BaseModel):
@@ -96,7 +97,7 @@ class PasswordLinkPreviewResponse(BaseModel):
 
 class CompletePasswordLinkRequest(BaseModel):
     token: str = Field(min_length=20)
-    new_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class CompletePasswordLinkResponse(BaseModel):

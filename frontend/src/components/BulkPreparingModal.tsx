@@ -8,6 +8,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import { useLocale } from "../i18n/LocaleContext";
 
 type Props = {
   open: boolean;
@@ -15,22 +16,25 @@ type Props = {
   message?: string;
   cancelling?: boolean;
   onCancel?: () => void;
-  /** Si false, solo muestra progreso sin botón cancelar */
   showCancel?: boolean;
 };
 
 /**
- * Modal bloqueante para esperas largas (simulación / preparación),
- * no para el job de archivado (ese sigue en segundo plano).
+ * Blocking modal for long waits (simulation / prep).
+ * Archive jobs continue in the background.
  */
 export default function BulkPreparingModal({
   open,
-  title = "Preparando archivado masivo",
-  message = "Consultando correos en el proveedor. Esto puede demorar varios minutos.",
+  title,
+  message,
   cancelling = false,
   onCancel,
   showCancel = true,
 }: Props) {
+  const { t } = useLocale();
+  const resolvedTitle = title || t("bulkModal", "title");
+  const resolvedMessage = message || t("bulkModal", "body");
+
   return (
     <Dialog
       open={open}
@@ -40,14 +44,14 @@ export default function BulkPreparingModal({
       onClose={() => undefined}
       aria-labelledby="bulk-preparing-title"
     >
-      <DialogTitle id="bulk-preparing-title">{title}</DialogTitle>
+      <DialogTitle id="bulk-preparing-title">{resolvedTitle}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 0.5 }}>
-          <Typography color="text.secondary">{message}</Typography>
+          <Typography color="text.secondary">{resolvedMessage}</Typography>
           <LinearProgress />
           {cancelling && (
             <Typography variant="body2" color="text.secondary">
-              Cancelando…
+              {t("bulkModal", "cancelling")}
             </Typography>
           )}
         </Stack>
@@ -55,7 +59,7 @@ export default function BulkPreparingModal({
       {showCancel && onCancel && (
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button color="warning" variant="contained" onClick={onCancel} disabled={cancelling}>
-            {cancelling ? "Cancelando…" : "Cancelar"}
+            {cancelling ? t("bulkModal", "cancelling") : t("bulkModal", "cancel")}
           </Button>
         </DialogActions>
       )}

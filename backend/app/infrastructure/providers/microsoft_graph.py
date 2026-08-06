@@ -48,7 +48,7 @@ class MicrosoftOAuthService:
             "scope": self.settings.microsoft_scopes,
             "state": state,
             # Forzar elección/login: no reutilizar la sesión Microsoft de otro usuario en la misma PC.
-            "prompt": "login",
+            "prompt": "select_account",
         }
         return f"{self.authority}/oauth2/v2.0/authorize?{urlencode(params)}"
 

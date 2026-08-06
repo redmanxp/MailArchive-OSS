@@ -33,11 +33,25 @@ def install_status(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InstallStatusResponse:
+    from app.infrastructure.persistence.repositories.tenant_settings_repo import SqlAlchemyTenantSettingsRepository
+    from app.infrastructure.security.fernet_cipher import CredentialCipher
+
     uc = GetInstallationStatusUseCase(SqlAlchemyInstallRepository(db))
     data = uc.execute()
+    ui_locale = "es"
+    if data["installed"]:
+        from sqlalchemy import select
+        from app.infrastructure.persistence.models import TenantModel
+
+        row = db.scalar(select(TenantModel).order_by(TenantModel.id.asc()).limit(1))
+        if row:
+            ui_locale = SqlAlchemyTenantSettingsRepository(db, CredentialCipher(settings)).get_ui_locale(
+                row.id
+            )
     return InstallStatusResponse(
         installed=data["installed"],
         public_register_enabled=settings.feature_public_register,
+        ui_locale=ui_locale,
     )
 
 

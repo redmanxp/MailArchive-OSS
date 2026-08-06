@@ -12,9 +12,11 @@ import {
 } from "@mui/material";
 import { getInstallStatus } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useLocale } from "../i18n/LocaleContext";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const { t } = useLocale();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,7 +41,7 @@ export default function LoginPage() {
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        "Login fallido";
+        t("login", "failed");
       setError(String(msg));
     } finally {
       setLoading(false);
@@ -76,16 +78,16 @@ export default function LoginPage() {
             "&:hover": { bgcolor: "#fff" },
           }}
         >
-          Crear usuario
+          {t("login", "createUser")}
         </Button>
       )}
       <Container maxWidth="xs">
         <Paper elevation={0} sx={{ p: 4, border: "1px solid #d5dee5" }}>
           <Typography variant="h4" gutterBottom>
-            MailArchive
+            {t("login", "title")}
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Iniciar sesión
+            {t("login", "subtitle")}
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -94,13 +96,13 @@ export default function LoginPage() {
           )}
           <Stack component="form" spacing={2} onSubmit={onSubmit}>
             <TextField
-              label="Tenant"
+              label={t("login", "tenant")}
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value)}
-              helperText="Organización (slug, ej. acme)"
+              helperText={t("login", "tenantHint")}
             />
             <TextField
-              label="Email"
+              label={t("login", "email")}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -108,7 +110,7 @@ export default function LoginPage() {
               autoComplete="username"
             />
             <TextField
-              label="Contraseña"
+              label={t("login", "password")}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -116,7 +118,7 @@ export default function LoginPage() {
               autoComplete="current-password"
             />
             <Button type="submit" variant="contained" size="large" disabled={loading}>
-              {loading ? "Ingresando…" : "Ingresar"}
+              {loading ? t("login", "submitting") : t("login", "submit")}
             </Button>
           </Stack>
         </Paper>

@@ -10,21 +10,21 @@ import {
   Typography,
 } from "@mui/material";
 import { useAuth } from "../auth/AuthContext";
-
-import { roleLabel } from "../utils/labels";
+import { useLocale } from "../i18n/LocaleContext";
+import { useLabels } from "../utils/labels";
 
 const DRAWER_WIDTH = 232;
 
 const NAV = [
-  { to: "/app", label: "Panel", end: true },
-  { to: "/app/accounts", label: "Cuentas" },
-  { to: "/app/archive", label: "Archivar" },
-  { to: "/app/bulk", label: "Masivo" },
-  { to: "/app/mails", label: "Archivados" },
-  { to: "/app/users", label: "Usuarios", admin: true },
-  { to: "/app/audit", label: "Auditoría", admin: true },
-  { to: "/app/settings", label: "Configuración", admin: true },
-];
+  { to: "/app", key: "dashboard", end: true },
+  { to: "/app/accounts", key: "accounts" },
+  { to: "/app/archive", key: "archive" },
+  { to: "/app/bulk", key: "bulk" },
+  { to: "/app/mails", key: "mails" },
+  { to: "/app/users", key: "users", admin: true },
+  { to: "/app/audit", key: "audit", admin: true },
+  { to: "/app/settings", key: "settings", admin: true },
+] as const;
 
 function isActive(pathname: string, to: string, end?: boolean) {
   if (end) return pathname === to;
@@ -33,6 +33,8 @@ function isActive(pathname: string, to: string, end?: boolean) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const { t } = useLocale();
+  const { roleLabel } = useLabels();
   const location = useLocation();
   const isAdmin = user?.role === "admin";
   const roleText = roleLabel(user?.role);
@@ -58,14 +60,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <Box sx={{ px: 2.5, py: 2.25 }}>
           <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2 }}>
-            MailArchive
+            {t("common", "appName", "MailArchive")}
           </Typography>
         </Box>
         <Divider sx={{ borderColor: "rgba(255,255,255,0.16)" }} />
 
         <List sx={{ flex: 1, py: 1, px: 1, overflowY: "auto" }}>
-          {NAV.filter((n) => !n.admin || isAdmin).map((item) => {
-            const active = isActive(location.pathname, item.to, item.end);
+          {NAV.filter((n) => !("admin" in n && n.admin) || isAdmin).map((item) => {
+            const active = isActive(location.pathname, item.to, "end" in item ? item.end : false);
             return (
               <ListItemButton
                 key={item.to}
@@ -85,7 +87,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 }}
               >
                 <ListItemText
-                  primary={item.label}
+                  primary={t("nav", item.key)}
                   primaryTypographyProps={{
                     fontWeight: active ? 600 : 400,
                     fontSize: "0.9375rem",
@@ -100,7 +102,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Box
             component={RouterLink}
             to="/app/profile"
-            title="Ver perfil"
+            title={t("nav", "profile")}
             sx={{
               display: "block",
               color: "inherit",
@@ -130,7 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             onClick={() => logout()}
             sx={{ mt: 1.25, px: 0, minWidth: 0, opacity: 0.9, textTransform: "none" }}
           >
-            Salir
+            {t("common", "logout")}
           </Button>
         </Box>
       </Drawer>
@@ -140,10 +142,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         sx={{
           flexGrow: 1,
           width: `calc(100% - ${DRAWER_WIDTH}px)`,
-          minHeight: "100vh",
+          height: "100vh",
+          maxHeight: "100vh",
           px: { xs: 2, md: 3 },
-          py: { xs: 2, md: 3 },
-          overflowX: "auto",
+          py: { xs: 2, md: 2.5 },
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
         }}
       >
         {children}

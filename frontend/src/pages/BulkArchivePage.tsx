@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
-  Box,
   Button,
   Checkbox,
   FormControlLabel,
@@ -14,6 +13,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -23,6 +23,7 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import StopIcon from "@mui/icons-material/Stop";
 import AppLayout from "../layouts/AppLayout";
+import PageShell from "../components/PageShell";
 import BulkPreparingModal from "../components/BulkPreparingModal";
 import {
   cancelArchiveJob,
@@ -35,9 +36,10 @@ import {
   type ArchiveJob,
   type FolderPublic,
 } from "../api/client";
+import { useLocale } from "../i18n/LocaleContext";
 import { formatDateTime } from "../utils/datetime";
 import { folderDepth, folderLeafName } from "../utils/folders";
-import { jobStatusLabel } from "../utils/labels";
+import { useLabels } from "../utils/labels";
 import { saveBulkPreview } from "./BulkPreviewPage";
 
 function formatBytes(n: number) {
@@ -47,6 +49,8 @@ function formatBytes(n: number) {
 }
 
 export default function BulkArchivePage() {
+  const { t, tf } = useLocale();
+  const { jobStatusLabel } = useLabels();
   const navigate = useNavigate();
   const location = useLocation();
   const [accounts, setAccounts] = useState<AccountPublic[]>([]);
@@ -79,18 +83,18 @@ export default function BulkArchivePage() {
         setAccounts(rows);
         if (rows.length === 1) setAccountId(rows[0].id);
       })
-      .catch((e) => setError(String(e?.response?.data?.detail || "Error cuentas")));
+      .catch((e) => setError(String(e?.response?.data?.detail || t("bulk", "loadError"))));
     refreshJobs().catch(() => undefined);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const started = (location.state as { startedJobId?: number } | null)?.startedJobId;
     if (started) {
-      setInfo(`Job #${started} iniciado. Podés seguir el avance abajo.`);
+      setInfo(tf("bulk", "jobStarted", { id: started }));
       navigate("/app/bulk", { replace: true, state: {} });
       refreshJobs().catch(() => undefined);
     }
-  }, [location.state, navigate]);
+  }, [location.state, navigate, tf]);
 
   useEffect(() => {
     if (!accountId) {
@@ -104,16 +108,16 @@ export default function BulkArchivePage() {
         const inbox = rows.find((f) => /inbox|bandeja/i.test(f.name)) || rows[0];
         setFolderId(inbox?.id || "");
       })
-      .catch((e) => setError(String(e?.response?.data?.detail || "Error carpetas")));
-  }, [accountId]);
+      .catch((e) => setError(String(e?.response?.data?.detail || t("bulk", "loadError"))));
+  }, [accountId, t]);
 
   useEffect(() => {
     const hasRunning = jobs.some((j) => j.status === "pending" || j.status === "running");
     if (!hasRunning) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       refreshJobs().catch(() => undefined);
     }, 2500);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [jobs]);
 
   function criteria() {
@@ -152,7 +156,7 @@ export default function BulkArchivePage() {
         { signal: ac.signal }
       );
       if (!r.message_count) {
-        setInfo("Simulación: 0 mensajes con esos criterios.");
+        setInfo(t("bulk", "simZero"));
         return;
       }
       const account = accounts.find((a) => a.id === Number(accountId));
@@ -172,10 +176,15 @@ export default function BulkArchivePage() {
         (err as { code?: string; name?: string })?.code === "ERR_CANCELED" ||
         (err as { name?: string })?.name === "CanceledError";
       if (aborted) {
-        setInfo("Preparación cancelada.");
+        setInfo(t("bulk", "prepCancelled"));
         return;
       }
-      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Error"));
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("common", "error")
+        )
+      );
     } finally {
       if (prepAbortRef.current === ac) prepAbortRef.current = null;
       setLoading(false);
@@ -190,254 +199,268 @@ export default function BulkArchivePage() {
 
   return (
     <AppLayout>
-      <BulkPreparingModal
-        open={loading}
-        cancelling={cancellingPrep}
-        onCancel={onCancelPrep}
-      />
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h4">Archivado masivo</Typography>
-          <Typography color="text.secondary">
-            Criterios → simular → revisar listado → aplicar → progreso del job
-          </Typography>
-        </Box>
-        <Tooltip title="Actualizar procesos">
-          <IconButton onClick={() => refreshJobs()} color="primary">
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      {info && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfo(null)}>
-          {info}
-        </Alert>
-      )}
-
-      <Paper sx={{ p: 3, mb: 3 }} component="form" onSubmit={onSimulate}>
-        <Stack spacing={2}>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-            <TextField
-              select
-              label="Cuenta"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : "")}
-              fullWidth
-              required
-            >
-              {accounts.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  {a.email}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Carpeta"
-              value={folderId}
-              onChange={(e) => setFolderId(e.target.value)}
-              fullWidth
-              disabled={!folders.length}
-              SelectProps={{
-                renderValue: (selected) => {
-                  const f = folders.find((x) => x.id === selected);
-                  if (!f) return "";
-                  return folderLeafName(f.path || f.name, f.name);
-                },
-              }}
-            >
-              {folders.map((f) => {
-                const label = f.path || f.name;
-                const depth = folderDepth(label);
-                return (
-                  <MenuItem key={f.id} value={f.id} sx={{ pl: 2 + depth * 2.5 }}>
-                    {folderLeafName(label, f.name)}
-                  </MenuItem>
-                );
-              })}
-            </TextField>
-          </Stack>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-            <TextField
-              label="Desde"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              fullWidth
-            />
-            <TextField
-              label="Hasta"
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              fullWidth
-            />
-            <TextField
-              label="Más antiguos que (días)"
-              type="number"
-              value={olderDays}
-              onChange={(e) => setOlderDays(e.target.value)}
-              fullWidth
-            />
-          </Stack>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-            <TextField
-              label="Tamaño mín. (MB)"
-              type="number"
-              value={minSizeMb}
-              onChange={(e) => setMinSizeMb(e.target.value)}
-              fullWidth
-            />
-            <TextField
-              label="Límite"
-              type="text"
-              inputMode="numeric"
-              value={limit}
-              onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, "");
-                setLimit(v);
-              }}
-              onBlur={() => {
-                if (!limit || Number(limit) < 1) setLimit("200");
-                else if (Number(limit) > 2000) setLimit("2000");
-              }}
-              helperText="1–2000"
-              fullWidth
-            />
+      <BulkPreparingModal open={loading} cancelling={cancellingPrep} onCancel={onCancelPrep} />
+      <PageShell
+        title={t("bulk", "title")}
+        subtitle={t("bulk", "subtitle")}
+        actions={
+          <Tooltip title={t("common", "refresh")}>
+            <IconButton onClick={() => refreshJobs()} color="primary" aria-label={t("common", "refresh")}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        }
+        alerts={
+          <>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+            {info && (
+              <Alert severity="success" onClose={() => setInfo(null)} sx={{ mt: error ? 1 : 0 }}>
+                {info}
+              </Alert>
+            )}
+          </>
+        }
+        filters={
+          <Paper sx={{ p: 3 }} component="form" onSubmit={onSimulate} elevation={0} variant="outlined">
+            <Stack spacing={2}>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                <TextField
+                  select
+                  label={t("bulk", "account")}
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : "")}
+                  fullWidth
+                  required
+                >
+                  {accounts.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.email}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label={t("bulk", "folder")}
+                  value={folderId}
+                  onChange={(e) => setFolderId(e.target.value)}
+                  fullWidth
+                  disabled={!folders.length}
+                  SelectProps={{
+                    renderValue: (selected) => {
+                      const f = folders.find((x) => x.id === selected);
+                      if (!f) return "";
+                      return folderLeafName(f.path || f.name, f.name);
+                    },
+                  }}
+                >
+                  {folders.map((f) => {
+                    const label = f.path || f.name;
+                    const depth = folderDepth(label);
+                    return (
+                      <MenuItem key={f.id} value={f.id} sx={{ pl: 2 + depth * 2.5 }}>
+                        {folderLeafName(label, f.name)}
+                      </MenuItem>
+                    );
+                  })}
+                </TextField>
+              </Stack>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                <TextField
+                  label={t("bulk", "dateFrom")}
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField
+                  label={t("bulk", "dateTo")}
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField
+                  label={t("bulk", "olderThan")}
+                  type="number"
+                  value={olderDays}
+                  onChange={(e) => setOlderDays(e.target.value)}
+                  fullWidth
+                />
+              </Stack>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                <TextField
+                  label={t("bulk", "minSize")}
+                  type="number"
+                  value={minSizeMb}
+                  onChange={(e) => setMinSizeMb(e.target.value)}
+                  fullWidth
+                />
+                <TextField
+                  label={t("bulk", "limit")}
+                  type="text"
+                  inputMode="numeric"
+                  value={limit}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setLimit(v);
+                  }}
+                  onBlur={() => {
+                    if (!limit || Number(limit) < 1) setLimit("200");
+                    else if (Number(limit) > 2000) setLimit("2000");
+                  }}
+                  helperText={t("bulk", "limitHint")}
+                  fullWidth
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={onlyAttachments}
+                      onChange={(e) => setOnlyAttachments(e.target.checked)}
+                    />
+                  }
+                  label={t("bulk", "onlyAttachments")}
+                />
+              </Stack>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={deleteAfter}
+                    onChange={(e) => setDeleteAfter(e.target.checked)}
+                    color="warning"
+                  />
+                }
+                label={t("bulk", "deleteFromProvider")}
+              />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Tooltip title={t("bulk", "startTooltip")}>
+                  <span>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      size="large"
+                      disabled={!accountId || loading}
+                      sx={{ px: 3, py: 1.25, fontSize: "1rem", fontWeight: 600 }}
+                    >
+                      {loading ? t("bulk", "preparing") : t("bulk", "start")}
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Stack>
+            </Stack>
+          </Paper>
+        }
+      >
+        <Paper elevation={0} variant="outlined" sx={{ p: 2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }} spacing={1}>
+            <Typography variant="h6">{t("bulk", "jobsTitle")}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, textAlign: "right" }}>
+              {t("bulk", "jobsHint")}
+            </Typography>
             <FormControlLabel
               control={
-                <Checkbox checked={onlyAttachments} onChange={(e) => setOnlyAttachments(e.target.checked)} />
+                <Checkbox
+                  size="small"
+                  checked={showJobHistory}
+                  onChange={(e) => setShowJobHistory(e.target.checked)}
+                />
               }
-              label="Solo con adjuntos"
+              label={<Typography variant="body2">{t("bulk", "history")}</Typography>}
             />
           </Stack>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={deleteAfter}
-                onChange={(e) => setDeleteAfter(e.target.checked)}
-                color="warning"
-              />
-            }
-            label="Borrar del proveedor después de archivar (se confirma al aplicar)"
-          />
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Tooltip title="Iniciar proceso de archivado">
-              <span>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  size="large"
-                  disabled={!accountId || loading}
-                  sx={{ px: 3, py: 1.25, fontSize: "1rem", fontWeight: 600 }}
-                >
-                  {loading ? "Preparando…" : "Comenzar"}
-                </Button>
-              </span>
-            </Tooltip>
-          </Stack>
-        </Stack>
-      </Paper>
-
-      <Paper sx={{ p: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="h6">Procesos en curso</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ mr: 1, flex: 1, textAlign: "right" }}>
-            El archivado corre en segundo plano
-          </Typography>          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                checked={showJobHistory}
-                onChange={(e) => setShowJobHistory(e.target.checked)}
-              />
-            }
-            label={<Typography variant="body2">Ver historial</Typography>}
-          />
-        </Stack>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Estado</TableCell>
-              <TableCell>Progreso</TableCell>
-              <TableCell>Archivados</TableCell>
-              <TableCell>Creado</TableCell>
-              <TableCell align="right">Acciones</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {visibleJobs.map((j) => (
-              <TableRow key={j.id}>
-                <TableCell>#{j.id}</TableCell>
-                <TableCell>{jobStatusLabel(j.status)}</TableCell>
-                <TableCell sx={{ minWidth: 160 }}>
-                  <Typography variant="caption">
-                    {j.processed_messages}/{j.total_messages} ({j.progress_pct}%)
-                  </Typography>
-                  <LinearProgress
-                    variant="determinate"
-                    value={Math.min(100, j.progress_pct)}
-                    sx={{ mt: 0.5 }}
-                    color={j.status === "failed" ? "error" : j.status === "completed" ? "success" : "primary"}
-                  />
-                </TableCell>
-                <TableCell>
-                  {j.archived_messages} ok · {j.skipped_messages} skip · {j.failed_messages} err
-                  <Typography variant="caption" display="block">
-                    {formatBytes(j.archived_bytes)} / {formatBytes(j.total_bytes)}
-                  </Typography>
-                </TableCell>
-                <TableCell>{formatDateTime(j.created_at)}</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Actualizar">
-                    <IconButton
-                      size="small"
-                      onClick={async () => {
-                        const fresh = await getArchiveJob(j.id);
-                        setJobs((prev) => prev.map((x) => (x.id === j.id ? fresh : x)));
-                      }}
-                    >
-                      <RefreshIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  {(j.status === "pending" || j.status === "running") && (
-                    <Tooltip title="Cancelar">
-                      <IconButton
-                        size="small"
-                        color="warning"
-                        onClick={async () => {
-                          await cancelArchiveJob(j.id);
-                          await refreshJobs();
-                        }}
-                      >
-                        <StopIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {visibleJobs.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6}>
-                  <Typography color="text.secondary">
-                    {showJobHistory ? "Sin procesos." : "No hay procesos en curso."}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Paper>
+          <TableContainer>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "jobId")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "jobStatus")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "progress")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "archived")}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{t("bulk", "created")}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>
+                    {t("bulk", "actions")}
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {visibleJobs.map((j) => (
+                  <TableRow key={j.id}>
+                    <TableCell>#{j.id}</TableCell>
+                    <TableCell>{jobStatusLabel(j.status)}</TableCell>
+                    <TableCell sx={{ minWidth: 160 }}>
+                      <Typography variant="caption">
+                        {j.processed_messages}/{j.total_messages} ({j.progress_pct}%)
+                      </Typography>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(100, j.progress_pct)}
+                        sx={{ mt: 0.5 }}
+                        color={
+                          j.status === "failed" ? "error" : j.status === "completed" ? "success" : "primary"
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {tf("bulk", "jobStatsLine", {
+                        ok: j.archived_messages,
+                        skip: j.skipped_messages,
+                        err: j.failed_messages,
+                      })}
+                      <Typography variant="caption" display="block">
+                        {formatBytes(j.archived_bytes)} / {formatBytes(j.total_bytes)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{formatDateTime(j.created_at)}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title={t("common", "refresh")}>
+                        <IconButton
+                          size="small"
+                          aria-label={t("common", "refresh")}
+                          onClick={async () => {
+                            const fresh = await getArchiveJob(j.id);
+                            setJobs((prev) => prev.map((x) => (x.id === j.id ? fresh : x)));
+                          }}
+                        >
+                          <RefreshIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {(j.status === "pending" || j.status === "running") && (
+                        <Tooltip title={t("common", "cancel")}>
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            aria-label={t("common", "cancel")}
+                            onClick={async () => {
+                              await cancelArchiveJob(j.id);
+                              await refreshJobs();
+                            }}
+                          >
+                            <StopIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {visibleJobs.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Typography color="text.secondary">
+                        {showJobHistory ? t("bulk", "noJobs") : t("bulk", "noJobsHint")}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </PageShell>
     </AppLayout>
   );
 }

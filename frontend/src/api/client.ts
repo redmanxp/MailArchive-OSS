@@ -5,14 +5,6 @@ const api = axios.create({
   timeout: 15000,
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("ma_access_token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 export type UserPublic = {
   id: number;
   tenant_id: number;
@@ -34,6 +26,75 @@ export type TokenResponse = {
   user?: UserPublic;
 };
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("ma_access_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refresh = localStorage.getItem("ma_refresh_token");
+  if (!refresh) return null;
+  try {
+    const { data } = await axios.post<TokenResponse>(
+      `${import.meta.env.VITE_API_URL || ""}/api/v1/auth/refresh`,
+      { refresh_token: refresh },
+      { timeout: 15000 }
+    );
+    localStorage.setItem("ma_access_token", data.access_token);
+    if (data.refresh_token) localStorage.setItem("ma_refresh_token", data.refresh_token);
+    return data.access_token;
+  } catch {
+    localStorage.removeItem("ma_access_token");
+    localStorage.removeItem("ma_refresh_token");
+    return null;
+  }
+}
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const original = error?.config as { _maRetry?: boolean; url?: string; headers?: Record<string, string> } | undefined;
+    if (!original || error?.response?.status !== 401 || original._maRetry) {
+      return Promise.reject(error);
+    }
+    const url = String(original.url || "");
+    if (url.includes("/auth/login") || url.includes("/auth/refresh") || url.includes("/auth/logout")) {
+      return Promise.reject(error);
+    }
+    original._maRetry = true;
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    const token = await refreshPromise;
+    if (!token) return Promise.reject(error);
+    original.headers = original.headers || {};
+    original.headers.Authorization = `Bearer ${token}`;
+    return api.request(original);
+  }
+);
+
+export type EmailTemplateBlock = {
+  subject: string;
+  greeting: string;
+  intro: string;
+  button_label: string;
+  footer: string;
+  link_fallback: string;
+};
+
+export type EmailTemplates = {
+  locale: string;
+  invite: EmailTemplateBlock;
+  reset: EmailTemplateBlock;
+};
+
 export type SmtpSettings = {
   host: string;
   port: number;
@@ -43,12 +104,22 @@ export type SmtpSettings = {
   starttls: boolean;
   enabled: boolean;
   configured: boolean;
+  email_templates?: EmailTemplates;
+  available_locales?: { code: string; name: string }[];
+  ui_locale?: string;
 };
 
 export async function getInstallStatus() {
-  const { data } = await api.get<{ installed: boolean; public_register_enabled?: boolean }>(
-    "/api/v1/install/status"
-  );
+  const { data } = await api.get<{
+    installed: boolean;
+    public_register_enabled?: boolean;
+    ui_locale?: string;
+  }>("/api/v1/install/status");
+  return data;
+}
+
+export async function setTenantLocale(locale: string) {
+  const { data } = await api.put<{ message: string }>("/api/v1/i18n/tenant-locale", { locale });
   return data;
 }
 
@@ -182,6 +253,44 @@ export async function deactivateUser(userId: number) {
 
 export async function getSmtpSettings() {
   const { data } = await api.get<SmtpSettings>("/api/v1/admin/settings/smtp");
+  return data;
+}
+
+export type SystemSettings = {
+  app_env: string;
+  db_engine: string;
+  database_label: string;
+  mysql_host?: string | null;
+  mysql_port?: number | null;
+  mysql_database?: string | null;
+  storage_root: string;
+  editable: boolean;
+};
+
+export async function getSystemSettings() {
+  const { data } = await api.get<SystemSettings>("/api/v1/admin/settings/system");
+  return data;
+}
+
+export type DashboardMetrics = {
+  tenant_id: number;
+  scope: string;
+  users_count: number | null;
+  accounts_count: number;
+  mails_count: number;
+  storage_bytes: number;
+  attachments_count: number;
+  jobs_active: number;
+  health: {
+    db_ok: boolean;
+    storage_ok: boolean;
+    storage_root?: string | null;
+  } | null;
+  generated_at: string;
+};
+
+export async function getDashboardMetrics() {
+  const { data } = await api.get<DashboardMetrics>("/api/v1/dashboard/metrics");
   return data;
 }
 

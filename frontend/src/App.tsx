@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Box, CircularProgress } from "@mui/material";
 import { getInstallStatus } from "./api/client";
 import { useAuth } from "./auth/AuthContext";
+import { useLocale } from "./i18n/LocaleContext";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import InstallPage from "./pages/InstallPage";
@@ -16,6 +17,7 @@ import BulkArchivePage from "./pages/BulkArchivePage";
 import BulkPreviewPage from "./pages/BulkPreviewPage";
 import MailsPage from "./pages/MailsPage";
 import UsersPage from "./pages/UsersPage";
+import UserFormPage from "./pages/UserFormPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import SettingsPage from "./pages/SettingsPage";
 
@@ -41,6 +43,7 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { user, loading } = useAuth();
+  const { setLocale } = useLocale();
   const [installed, setInstalled] = useState<boolean | null>(null);
   const [publicRegister, setPublicRegister] = useState(false);
 
@@ -49,9 +52,10 @@ export default function App() {
       .then((s) => {
         setInstalled(s.installed);
         setPublicRegister(!!s.public_register_enabled);
+        if (s.ui_locale) void setLocale(s.ui_locale);
       })
       .catch(() => setInstalled(false));
-  }, []);
+  }, [setLocale]);
 
   if (installed === null || loading) {
     return (
@@ -142,6 +146,26 @@ export default function App() {
           <Protected>
             <AdminOnly>
               <UsersPage />
+            </AdminOnly>
+          </Protected>
+        }
+      />
+      <Route
+        path="/app/users/new"
+        element={
+          <Protected>
+            <AdminOnly>
+              <UserFormPage />
+            </AdminOnly>
+          </Protected>
+        }
+      />
+      <Route
+        path="/app/users/:id"
+        element={
+          <Protected>
+            <AdminOnly>
+              <UserFormPage />
             </AdminOnly>
           </Protected>
         }

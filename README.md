@@ -128,7 +128,7 @@ See [SECURITY.md](./SECURITY.md).
 
 ### Option A — Pre-built images (GHCR, recommended)
 
-Uses published images (`mailarchive-api` + `mailarchive-frontend`). No local compile.
+MailArchive ships as **two** images (API + UI). Prefer Compose:
 
 ```bash
 git clone https://github.com/redmanxp/MailArchive-OSS.git
@@ -136,16 +136,23 @@ cd MailArchive-OSS
 cp .env.example .env
 # Set SECRET_KEY, JWT_SECRET_KEY, DATA_ENCRYPTION_KEY (see comments in .env.example)
 
-export GHCR_OWNER=redmanxp          # package owner on ghcr.io
-export MAILARCHIVE_TAG=latest       # or a semver tag e.g. 1.0.0 after a Release
+export GHCR_OWNER=redmanxp
+export MAILARCHIVE_TAG=1.0.0   # or latest
 
-# If the GitHub packages are still private:
+# If packages are still private:
 #   echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 # UI:  http://localhost:8080
 # API: http://localhost:18100/health
+```
+
+Or pull the images directly:
+
+```bash
+docker pull ghcr.io/redmanxp/mailarchive-api:1.0.0
+docker pull ghcr.io/redmanxp/mailarchive-frontend:1.0.0
 ```
 
 Update later:
@@ -158,9 +165,9 @@ docker compose -f docker-compose.prod.yml up -d
 Optional MySQL: set `DB_ENGINE=mysql` in `.env`, then  
 `docker compose -f docker-compose.prod.yml --profile mysql up -d`.
 
-Images are published on **version tags** (`v1.0.0`, …) and via **Actions → Publish GHCR → Run workflow** (not on every push to `main`). Tags: `latest`, `1`, `1.0`, `1.0.0`.
+Images are published on **version tags** (`v1.0.0`, …) and via **Actions → Publish GHCR → Run workflow**. Tags: `latest`, `1`, `1.0`, `1.0.0`.
 
-> While the repo/packages are private, pull requires `docker login ghcr.io`. After the repo is public, make the packages public under **GitHub → Packages → package settings → Change visibility**.
+> Make both packages **public** under **GitHub → Packages → package settings → Change visibility** so anonymous `docker pull` works.
 
 ### Option B — Build from source
 

@@ -48,6 +48,35 @@ class SqlAlchemyArchiveJobRepository:
             )
         )
 
+    def list_pending(self, *, limit: int = 5) -> list[ArchiveJobModel]:
+        """Oldest pending jobs across tenants (single-node dispatcher)."""
+        stmt = (
+            select(ArchiveJobModel)
+            .where(ArchiveJobModel.status == "pending")
+            .order_by(ArchiveJobModel.id.asc())
+            .limit(limit)
+        )
+        return list(self._db.scalars(stmt).all())
+
+    def try_claim(self, tenant_id: int, job_id: int) -> ArchiveJobModel | None:
+        """Atomically move pending → running. Returns None if already claimed."""
+        from sqlalchemy import update
+
+        now = datetime.now(UTC)
+        result = self._db.execute(
+            update(ArchiveJobModel)
+            .where(
+                ArchiveJobModel.tenant_id == tenant_id,
+                ArchiveJobModel.id == job_id,
+                ArchiveJobModel.status == "pending",
+            )
+            .values(status="running", started_at=now, updated_at=now)
+        )
+        self._db.flush()
+        if not result.rowcount:
+            return None
+        return self.get(tenant_id, job_id)
+
     def list_for_tenant(self, tenant_id: int, *, user_id: int | None = None, limit: int = 50) -> list[ArchiveJobModel]:
         stmt = select(ArchiveJobModel).where(ArchiveJobModel.tenant_id == tenant_id)
         if user_id is not None:

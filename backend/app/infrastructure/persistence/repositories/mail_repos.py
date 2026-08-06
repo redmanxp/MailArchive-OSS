@@ -10,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums.providers import AccountStatus, MailProviderType
+from app.infrastructure.persistence import fts as mail_fts
 from app.infrastructure.persistence.models import ArchivedMailModel, AttachmentModel, MailAccountModel
 
 
@@ -247,6 +248,7 @@ class SqlAlchemyArchivedMailRepository:
                 )
             )
         self._db.flush()
+        mail_fts.upsert_mail_fts(self._db, row)
         return row
 
     def get_by_provider_message_id(
@@ -301,6 +303,7 @@ class SqlAlchemyArchivedMailRepository:
         atts = self.list_attachments(tenant_id, mail_id)
         for att in atts:
             self._db.delete(att)
+        mail_fts.delete_mail_fts(self._db, mail_id)
         self._db.delete(row)
         self._db.flush()
         return storage_path
@@ -335,18 +338,24 @@ class SqlAlchemyArchivedMailRepository:
         if date_to is not None:
             filters.append(ArchivedMailModel.sent_at <= date_to)
         if q:
-            like = f"%{q}%"
-            filters.append(
-                or_(
-                    ArchivedMailModel.subject.ilike(like),
-                    ArchivedMailModel.from_address.ilike(like),
-                    ArchivedMailModel.to_addresses.ilike(like),
-                    ArchivedMailModel.cc_addresses.ilike(like),
-                    ArchivedMailModel.body_preview.ilike(like),
-                    ArchivedMailModel.body_text.ilike(like),
-                    ArchivedMailModel.attachment_names.ilike(like),
+            fts_ids = mail_fts.fts_mail_ids(self._db, tenant_id, q)
+            if fts_ids is not None:
+                if not fts_ids:
+                    return [], 0
+                filters.append(ArchivedMailModel.id.in_(fts_ids))
+            else:
+                like = f"%{q}%"
+                filters.append(
+                    or_(
+                        ArchivedMailModel.subject.ilike(like),
+                        ArchivedMailModel.from_address.ilike(like),
+                        ArchivedMailModel.to_addresses.ilike(like),
+                        ArchivedMailModel.cc_addresses.ilike(like),
+                        ArchivedMailModel.body_preview.ilike(like),
+                        ArchivedMailModel.body_text.ilike(like),
+                        ArchivedMailModel.attachment_names.ilike(like),
+                    )
                 )
-            )
 
         total = int(self._db.scalar(select(func.count()).select_from(ArchivedMailModel).where(*filters)) or 0)
         stmt = (
@@ -387,18 +396,24 @@ class SqlAlchemyArchivedMailRepository:
         if date_to is not None:
             filters.append(ArchivedMailModel.sent_at <= date_to)
         if q:
-            like = f"%{q}%"
-            filters.append(
-                or_(
-                    ArchivedMailModel.subject.ilike(like),
-                    ArchivedMailModel.from_address.ilike(like),
-                    ArchivedMailModel.to_addresses.ilike(like),
-                    ArchivedMailModel.cc_addresses.ilike(like),
-                    ArchivedMailModel.body_preview.ilike(like),
-                    ArchivedMailModel.body_text.ilike(like),
-                    ArchivedMailModel.attachment_names.ilike(like),
+            fts_ids = mail_fts.fts_mail_ids(self._db, tenant_id, q, limit=limit)
+            if fts_ids is not None:
+                if not fts_ids:
+                    return [], 0
+                filters.append(ArchivedMailModel.id.in_(fts_ids))
+            else:
+                like = f"%{q}%"
+                filters.append(
+                    or_(
+                        ArchivedMailModel.subject.ilike(like),
+                        ArchivedMailModel.from_address.ilike(like),
+                        ArchivedMailModel.to_addresses.ilike(like),
+                        ArchivedMailModel.cc_addresses.ilike(like),
+                        ArchivedMailModel.body_preview.ilike(like),
+                        ArchivedMailModel.body_text.ilike(like),
+                        ArchivedMailModel.attachment_names.ilike(like),
+                    )
                 )
-            )
         total = int(self._db.scalar(select(func.count()).select_from(ArchivedMailModel).where(*filters)) or 0)
         ids = list(
             self._db.scalars(

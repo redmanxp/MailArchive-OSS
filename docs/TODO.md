@@ -11,7 +11,7 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 | # | Tarea | Pri | Estado |
 |---|--------|-----|--------|
 | C1 | Datos/storage editable (SQLite vs MySQL + STORAGE_ROOT) | P1 | **Hecho** (overrides en `/data/system_overrides.json`; DB → reinicio API) |
-| C2 | Wizard install: DB + carpeta archivos | P1 | Pendiente |
+| C2 | Wizard install: DB + carpeta archivos | P1 | **Hecho** (InstallPage + overrides; 409 si cambia motor) |
 | C3 | Apariencia / branding | P2 | Stub |
 | C4 | Microsoft Graph desde UI | P1 | **Hecho** (Settings → Microsoft 365) |
 | C5 | SMTP reply-to / timeout | P2 | Pendiente |
@@ -46,8 +46,8 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 
 | # | Tarea | Pri | Estado |
 |---|--------|-----|--------|
-| P1a | Full-text search nativo (FTS5/FULLTEXT) | P1 | Pendiente (hoy ILIKE amplio en subject/from/body) |
-| P2 | Worker durable de jobs | P1 | Pendiente |
+| P1a | Full-text search nativo (FTS5/FULLTEXT) | P1 | **Hecho** (migración 0003; fallback ILIKE) |
+| P2 | Worker durable de jobs | P1 | **Hecho** (pending sobrevive reinicio; solo `running` → failed; dispatcher) |
 | P3 | Dashboard métricas | P1 | Hecho |
 | P4–P7 | Gmail, S3, Postgres, retención | P2 | Roadmap |
 

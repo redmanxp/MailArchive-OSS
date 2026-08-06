@@ -114,6 +114,9 @@ export async function getInstallStatus() {
     installed: boolean;
     public_register_enabled?: boolean;
     ui_locale?: string;
+    db_engine?: string;
+    storage_root?: string;
+    restart_required?: boolean;
   }>("/api/v1/install/status");
   return data;
 }
@@ -129,6 +132,13 @@ export async function installApp(payload: {
   admin_name: string;
   admin_email: string;
   admin_password?: string;
+  storage_root?: string;
+  db_engine?: string;
+  mysql_host?: string;
+  mysql_port?: number;
+  mysql_user?: string;
+  mysql_database?: string;
+  mysql_password?: string;
 }) {
   const { data } = await api.post("/api/v1/install", payload);
   return data as {

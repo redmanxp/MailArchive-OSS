@@ -7,6 +7,9 @@ class InstallStatusResponse(BaseModel):
     installed: bool
     public_register_enabled: bool = False
     ui_locale: str = "es"
+    db_engine: str = "sqlite"
+    storage_root: str = ""
+    restart_required: bool = False
 
 
 class InstallRequest(BaseModel):
@@ -15,6 +18,14 @@ class InstallRequest(BaseModel):
     admin_name: str = Field(min_length=2, max_length=255)
     admin_email: EmailStr
     admin_password: str | None = Field(default=None, min_length=8, max_length=128)
+    # Optional data wizard (applied via system overrides)
+    storage_root: str | None = Field(default=None, max_length=1024)
+    db_engine: str | None = None
+    mysql_host: str | None = None
+    mysql_port: int | None = None
+    mysql_user: str | None = None
+    mysql_database: str | None = None
+    mysql_password: str | None = None
 
 
 class InstallResponse(BaseModel):

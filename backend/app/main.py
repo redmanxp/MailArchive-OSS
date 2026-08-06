@@ -76,6 +76,9 @@ def on_startup() -> None:
     else:
         Base.metadata.create_all(bind=engine)
     _reclaim_orphaned_archive_jobs()
+    from app.infrastructure.jobs.dispatcher import start_job_dispatcher
+
+    start_job_dispatcher(poll_seconds=5.0)
     try:
         clear_restart_flag()
     except Exception:
@@ -89,7 +92,7 @@ def on_startup() -> None:
 
 
 def _reclaim_orphaned_archive_jobs() -> None:
-    """Jobs run in in-process threads; after API restart they stay 'running' forever."""
+    """Mark interrupted ``running`` jobs as failed. ``pending`` jobs are left for the dispatcher."""
     from datetime import UTC, datetime
 
     from sqlalchemy import update
@@ -102,7 +105,7 @@ def _reclaim_orphaned_archive_jobs() -> None:
         now = datetime.now(UTC)
         result = db.execute(
             update(ArchiveJobModel)
-            .where(ArchiveJobModel.status.in_(("pending", "running")))
+            .where(ArchiveJobModel.status == "running")
             .values(
                 status="failed",
                 finished_at=now,
@@ -112,7 +115,7 @@ def _reclaim_orphaned_archive_jobs() -> None:
         )
         db.commit()
         if result.rowcount:
-            logger.warning("Reclaimed %s orphaned archive job(s)", result.rowcount)
+            logger.warning("Reclaimed %s orphaned running archive job(s)", result.rowcount)
     except Exception:
         logger.exception("No se pudieron recuperar jobs huérfanos")
         db.rollback()

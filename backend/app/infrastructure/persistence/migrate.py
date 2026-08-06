@@ -52,7 +52,7 @@ def run_migrations(engine: Engine) -> None:
         if has_mail:
             command.stamp(cfg, "0002_mail_archive")
             logger.info("Stamped alembic to 0002_mail_archive (tables already present)")
-            return
+            # Fall through so later revisions (e.g. FTS) still apply.
 
     try:
         command.upgrade(cfg, "head")

@@ -264,10 +264,11 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         factory = MailProviderFactory(settings, cipher)
         storage = FilesystemMailStorage(settings.storage_root)
 
-        job = job_repo.get(tenant_id, job_id)
+        job = job_repo.try_claim(tenant_id, job_id)
         if job is None:
+            # Already running, finished, or missing — avoid double execution.
+            logger.info("Archive job id=%s tenant=%s not claimed (skip)", job_id, tenant_id)
             return
-        job_repo.update_progress(tenant_id, job_id, status=ArchiveJobStatus.RUNNING.value, started=True)
         db.commit()
 
         criteria = dict(job.criteria or {})

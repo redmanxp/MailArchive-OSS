@@ -4,7 +4,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](./docker-compose.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](./backend/requirements.txt)
 [![React](https://img.shields.io/badge/frontend-React%20%2B%20Vite-61dafb)](./frontend/package.json)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b)](https://ko-fi.com/redmanxp)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b)](https://ko-fi.com/mailarchive)
 
 ![MailArchive dashboard](docs/images/dashboard.png)
 
@@ -183,7 +183,7 @@ See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
 
 If MailArchive helps your organization, consider supporting development.
 
-☕ Ko-fi: <https://ko-fi.com/redmanxp>
+☕ Ko-fi: <https://ko-fi.com/mailarchive>
 
 Your support helps maintain documentation, hosting, and new features.
 

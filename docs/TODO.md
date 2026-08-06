@@ -58,8 +58,8 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 
 | # | Tarea | Pri | Estado |
 |---|--------|-----|--------|
-| Q1 | Tests backend | P1 | **Parcial** (smoke + FTS/SMTP/schemas/appearance) |
-| Q2 | Playwright e2e | P2 | Diferido |
+| Q1 | Tests backend | P1 | **Hecho** (auth flow + storage EML + smoke/FTS/SMTP/…) |
+| Q2 | Playwright e2e | P2 | **Hecho** (`e2e/` smoke login contra stack Docker) |
 | Q3 | Ruff/mypy/ESLint en CI | P1 | **Parcial** (Ruff + mypy scoped + pytest + tsc + ESLint) |
 
 ---

@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-foam text-ink font-sans antialiased;
+}
+
+::selection {
+  @apply bg-teal/20 text-ink;
+}
+
+.section-pad {
+  @apply px-5 sm:px-8 lg:px-12;
+}
+
+.mesh {
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% 20%, rgba(20, 184, 166, 0.18), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 90% 10%, rgba(56, 189, 248, 0.12), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 70% 80%, rgba(217, 119, 6, 0.08), transparent 55%),
+    linear-gradient(180deg, #0b1c24 0%, #123040 48%, #0f766e22 100%);
+}

@@ -1,0 +1,26 @@
+[Unit]
+Description=MailArchive API (FastAPI / uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__MAILARCHIVE_USER__
+Group=__MAILARCHIVE_USER__
+WorkingDirectory=__MAILARCHIVE_ROOT__/backend
+EnvironmentFile=-__MAILARCHIVE_ROOT__/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=__MAILARCHIVE_ROOT__/backend
+# Single worker: archive jobs live in in-memory threads of this process
+ExecStart=__MAILARCHIVE_ROOT__/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 18100 --workers 1
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mailarchive-api
+
+[Install]
+WantedBy=multi-user.target

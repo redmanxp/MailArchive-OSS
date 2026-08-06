@@ -1,0 +1,6 @@
+ruff==0.9.6
+pytest==8.3.5
+httpx==0.28.1
+mypy==1.14.1
+types-PyMySQL==1.1.0.20241103
+moto[s3]==5.0.28

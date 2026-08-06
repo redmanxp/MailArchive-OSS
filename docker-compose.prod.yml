@@ -1,0 +1,107 @@
+# MailArchive — production-style stack using pre-built GHCR images (no local build).
+#
+# Quick start (clone or download this file + .env.example):
+#   cp .env.example .env   # set SECRET_KEY, JWT_*, DATA_ENCRYPTION_KEY
+#   export GHCR_OWNER=redmanxp          # GitHub user/org that owns the packages
+#   export MAILARCHIVE_TAG=latest       # or 1.0.0 after a Release
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#   UI: http://localhost:8080
+#
+# Private packages (repo not public yet):
+#   echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
+#
+# MySQL: set DB_ENGINE=mysql in .env, then:
+#   docker compose -f docker-compose.prod.yml --profile mysql up -d
+#
+# Update:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER:-redmanxp}/mailarchive-api:${MAILARCHIVE_TAG:-latest}
+    container_name: mailarchive-api
+    restart: unless-stopped
+    pull_policy: always
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: "18100"
+      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/mailarchive.db}
+      STORAGE_ROOT: /storage
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      API_URL: ${API_URL:-http://localhost:8080}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-http://localhost:8080/api/v1/accounts/microsoft/oauth/callback}
+      FEATURE_PUBLIC_REGISTER: ${FEATURE_PUBLIC_REGISTER:-false}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-mailarchive}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-db-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mailarchive}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-filesystem}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-mailarchive}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_PREFIX: ${S3_PREFIX:-}
+    volumes:
+      - mailarchive_data:/data
+      - mailarchive_storage:/storage
+    ports:
+      - "18100:18100"
+    depends_on:
+      mysql:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18100/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-redmanxp}/mailarchive-frontend:${MAILARCHIVE_TAG:-latest}
+    container_name: mailarchive-frontend
+    restart: unless-stopped
+    pull_policy: always
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+  mysql:
+    profiles: ["mysql"]
+    image: mysql:8.4
+    container_name: mailarchive-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mailarchive}
+      MYSQL_USER: ${MYSQL_USER:-mailarchive}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-db-password}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mailarchive_mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-change-me-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mailarchive_data:
+  mailarchive_storage:
+  mailarchive_mysql_data:

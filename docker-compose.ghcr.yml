@@ -1,0 +1,21 @@
+# Prefer GHCR images over local build (Compose 2.24+ clears `build` with !reset).
+# Prefer docker-compose.prod.yml for a standalone install without building.
+#
+# Overlay (keeps mysql/minio profiles from docker-compose.yml):
+#   export GHCR_OWNER=redmanxp
+#   export MAILARCHIVE_TAG=latest   # or 1.0.0
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+#
+# Private packages: echo $GHCR_TOKEN | docker login ghcr.io -u USER --password-stdin
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER:-redmanxp}/mailarchive-api:${MAILARCHIVE_TAG:-latest}
+    build: !reset null
+    pull_policy: always
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-redmanxp}/mailarchive-frontend:${MAILARCHIVE_TAG:-latest}
+    build: !reset null
+    pull_policy: always

@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a bug in MailArchive
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Clear steps to reproduce and expected vs actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: e.g. main @ abc123 or docker tag
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose (SQLite)
+        - Docker Compose (MySQL)
+        - Local uvicorn / Vite
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell

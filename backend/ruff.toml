@@ -1,0 +1,12 @@
+# Ruff — start with correctness; expand style rules gradually.
+target-version = "py311"
+line-length = 120
+src = ["app", "tests"]
+
+[lint]
+# E9: syntax/runtime; F: pyflakes (unused/undefined). Style (I/UP) later.
+select = ["E9", "F"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"alembic/*" = ["E", "F"]

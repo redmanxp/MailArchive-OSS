@@ -4,7 +4,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](./docker-compose.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](./backend/requirements.txt)
 [![React](https://img.shields.io/badge/frontend-React%20%2B%20Vite-61dafb)](./frontend/package.json)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b)](https://ko-fi.com/mailarchive)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F6V224JUWU)
 
 ![MailArchive dashboard](docs/images/dashboard.png)
 
@@ -173,7 +173,7 @@ See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
 - LDAP / Active Directory
 - Legal retention policies
 - Multiple storage backends
-- Tenant branding (logo / colors)
+- Logo upload refinements (transparent favicon, per-tenant public URLs)
 
 ## License
 
@@ -183,7 +183,9 @@ See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
 
 If MailArchive helps your organization, consider supporting development.
 
-☕ Ko-fi: <https://ko-fi.com/mailarchive>
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F6V224JUWU)
+
+Page: [ko-fi.com/mailarchive](https://ko-fi.com/mailarchive)
 
 Your support helps maintain documentation, hosting, and new features.
 

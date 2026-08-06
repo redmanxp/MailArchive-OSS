@@ -79,7 +79,7 @@ Ship a **v0.9 / beta** tag first if you need a public repo sooner; reserve `v1.0
 | GitHub Actions CI | **BLOCKER** | lint + unit smoke + docker build |
 | Tagged release + GHCR or Docker Hub image | **SHOULD** | `ghcr.io/.../mailarchive:1.0.0` |
 | Architecture doc (short) | **SHOULD** | Providers, storage layout, multi-tenant |
-| Support / donations link | Done | https://ko-fi.com/mailarchive |
+| Support / donations link | Done | https://ko-fi.com/mailarchive (button: F6V224JUWU) |
 
 ---
 

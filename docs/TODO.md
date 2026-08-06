@@ -38,7 +38,7 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 | O1–O5 | CONTRIBUTING, CHANGELOG, CI, BACKUP, upgrade | P0 | Hecho |
 | O6 | CoC + issue/PR templates | P1 | **Hecho** |
 | O7 | GHCR / Docker Hub image | P1 | **Hecho** (workflow `publish-ghcr.yml` + `docker-compose.ghcr.yml`) |
-| O8 | Ko-fi real | P2 | **Hecho** (https://ko-fi.com/mailarchive) |
+| O8 | Ko-fi real | P2 | **Hecho** (https://ko-fi.com/mailarchive · botón F6V224JUWU) |
 
 ---
 

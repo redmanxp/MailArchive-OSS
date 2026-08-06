@@ -11,6 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import { selfRegister } from "../api/client";
+import BrandLogo from "../components/BrandLogo";
 import { useLocale } from "../i18n/LocaleContext";
 
 export default function RegisterPage() {
@@ -58,10 +59,10 @@ export default function RegisterPage() {
     >
       <Container maxWidth="sm">
         <Paper elevation={0} sx={{ p: 4, border: "1px solid #d5dee5" }}>
-          <Typography variant="h4" gutterBottom>
-            {t("register", "title")}
-          </Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+            <BrandLogo kind="full" height={120} maxWidth={240} />
+          </Box>
+          <Typography color="text.secondary" sx={{ mb: 3, textAlign: "center" }}>
             {t("register", "subtitle")}
           </Typography>
           {error && (

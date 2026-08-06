@@ -35,7 +35,7 @@ jobs:
             context: ./frontend
             image_suffix: mailarchive-frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Image name
         id: meta_name

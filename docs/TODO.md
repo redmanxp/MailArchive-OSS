@@ -46,7 +46,7 @@ Lenguaje: **scheduled incremental archive** — nunca “email sync” (evita ex
 | O9 | GitHub Social preview (cover) | P2 | **Al hacer público** — Settings → General → Social preview → subir `docs/images/cover.png` |
 | O10 | Dependabot | P2 | **Hecho** (`.github/dependabot.yml`) |
 | O11 | Screenshots README: redactar emails **y hostnames** (SMTP/IMAP) a `*.example.com` | P1 | **Hecho** (script `capture-screenshots.mjs`) |
-| O12 | Landing Pages (`landing/` + workflow `pages.yml`) | P2 | **Código listo** — tras repo público: Settings → Pages → Source: GitHub Actions → `https://redmanxp.github.io/MailArchive-OSS/` |
+| O12 | Landing Pages (`landing/` + workflow `pages.yml`) | P2 | **Rama `gh-pages` publicada** — Settings → Pages → Deploy from a branch → `gh-pages` / `/` → https://redmanxp.github.io/MailArchive-OSS/ |
 
 ---
 

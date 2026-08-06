@@ -17,12 +17,20 @@ npm run preview
 
 ## Deploy
 
-Push to `main` under `landing/**` (or run **Deploy landing** workflow manually).
+Two options (repo must be **public**):
 
-**Blocked while the repo is private:** GitHub Pages on the free plan requires a **public** repository (or a paid plan). When you make the repo public:
+### A — Branch `gh-pages` (simplest)
 
-1. Settings → Pages → Source: **GitHub Actions**
-2. Run workflow **Deploy landing (GitHub Pages)**
-3. Site: https://redmanxp.github.io/MailArchive-OSS/
+The static site is already on branch **`gh-pages`**.
+
+1. Open https://github.com/redmanxp/MailArchive-OSS/settings/pages  
+2. **Build and deployment** → **Source**: **Deploy from a branch**  
+3. Branch: **`gh-pages`** / folder: **`/`** (root) → **Save**  
+4. Wait ~1 minute → https://redmanxp.github.io/MailArchive-OSS/
+
+### B — GitHub Actions
+
+1. Settings → Pages → Source: **GitHub Actions**  
+2. Actions → **Deploy landing (GitHub Pages)** → **Run workflow**  
 
 Tracked in `docs/TODO.md` as **O12**.

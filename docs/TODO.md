@@ -40,7 +40,7 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 | O3 | GitHub Actions (lint + smoke + docker build) | P0 | Hecho (workflow básico) |
 | O4 | Docs backup/restore (DB + `STORAGE_ROOT`) | P0 | Hecho (`docs/BACKUP.md`) |
 | O5 | Docs upgrade path | P0 | Incluido en BACKUP.md |
-| O6 | `CODE_OF_CONDUCT` + issue/PR templates | P1 | Pendiente |
+| O6 | `CODE_OF_CONDUCT` + issue/PR templates | P1 | CoC hecho; templates PR/issue pendientes |
 | O7 | Imagen publicada (GHCR / Docker Hub) | P1 | Pendiente |
 | O8 | Completar enlace Ko-fi real en README | P2 | Placeholder |
 

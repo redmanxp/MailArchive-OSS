@@ -22,6 +22,8 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Ruff
         run: ruff check app tests
+      - name: Mypy (scoped)
+        run: mypy app/infrastructure/branding_storage.py app/infrastructure/persistence/fts.py app/infrastructure/jobs
       - name: Import check
         env:
           PYTHONPATH: ${{ github.workspace }}/backend

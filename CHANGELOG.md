@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SMTP Reply-To and configurable timeout (5–120s)
 - Tenant appearance: brand name + primary color in Settings → Appearance
 - Default MailArchive logos (icon + full) with admin upload/reset via branding API
-- Real Ko-fi support link (https://ko-fi.com/mailarchive) with official GitHub button
+- Real Ko-fi support link (https://ko-fi.com/mailarchive) with official GitHub button and `.github/FUNDING.yml`
 - Frontend ESLint (typescript-eslint + react-hooks) in CI
+- Scoped mypy on branding/FTS/jobs helpers in CI
 - App-wide i18n (ES/EN) for UI and email templates; language packs under `backend/app/i18n/locales/`
 - Settings tabs: SMTP, templates, language, data/storage (editable), Microsoft 365 OAuth, appearance stub
 - File-based system overrides (`/data/system_overrides.json`) for DB/storage/Graph without editing `.env`

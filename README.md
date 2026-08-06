@@ -185,7 +185,7 @@ If MailArchive helps your organization, consider supporting development.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F6V224JUWU)
 
-Page: [ko-fi.com/mailarchive](https://ko-fi.com/mailarchive)
+Page: [ko-fi.com/mailarchive](https://ko-fi.com/mailarchive) · GitHub Sponsor button via [`.github/FUNDING.yml`](./.github/FUNDING.yml)
 
 Your support helps maintain documentation, hosting, and new features.
 

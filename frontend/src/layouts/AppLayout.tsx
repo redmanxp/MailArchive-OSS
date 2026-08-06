@@ -8,12 +8,14 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  Stack,
   ThemeProvider,
   Typography,
 } from "@mui/material";
 import { createTheme } from "@mui/material/styles";
 import { getAppearance } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import BrandLogo from "../components/BrandLogo";
 import { useLocale } from "../i18n/LocaleContext";
 import { theme as baseTheme } from "../theme";
 import { useLabels } from "../utils/labels";
@@ -45,12 +47,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const roleText = roleLabel(user?.role);
   const [brandName, setBrandName] = useState("");
   const [primaryColor, setPrimaryColor] = useState("");
+  const [logoBust, setLogoBust] = useState(0);
 
   useEffect(() => {
     getAppearance()
       .then((a) => {
         setBrandName(a.brand_name || "");
         setPrimaryColor(a.primary_color || "");
+        setLogoBust(Date.now());
       })
       .catch(() => undefined);
   }, [location.pathname]);
@@ -88,9 +92,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <Box sx={{ px: 2.5, py: 2.25 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2 }} noWrap title={title}>
-            {title}
-          </Typography>
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box
+              sx={{
+                bgcolor: "#fff",
+                borderRadius: 1.5,
+                p: 0.5,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <BrandLogo kind="icon" height={32} maxWidth={32} cacheBust={logoBust} alt={title} />
+            </Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2, lineHeight: 1.2 }} noWrap title={title}>
+              {title}
+            </Typography>
+          </Stack>
         </Box>
         <Divider sx={{ borderColor: "rgba(255,255,255,0.16)" }} />
 

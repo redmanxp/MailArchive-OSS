@@ -47,6 +47,10 @@ class TenantLocaleUpdate(BaseModel):
 class AppearancePublic(BaseModel):
     brand_name: str = ""
     primary_color: str = ""
+    has_custom_logo_icon: bool = False
+    has_custom_logo_full: bool = False
+    logo_icon_url: str = "/api/v1/branding/logo/icon"
+    logo_full_url: str = "/api/v1/branding/logo/full"
 
 
 class AppearanceUpdate(BaseModel):
@@ -71,7 +75,13 @@ def get_appearance(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AppearancePublic:
     """Any authenticated user: org display name + primary color."""
+    from app.infrastructure import branding_storage
+
     data = _settings_repo(db, settings).get_appearance(ctx.user.tenant_id)
+    data["has_custom_logo_icon"] = branding_storage.has_custom_logo(settings, ctx.user.tenant_id, "icon")
+    data["has_custom_logo_full"] = branding_storage.has_custom_logo(settings, ctx.user.tenant_id, "full")
+    data["logo_icon_url"] = "/api/v1/branding/logo/icon"
+    data["logo_full_url"] = "/api/v1/branding/logo/full"
     return AppearancePublic(**data)
 
 
@@ -94,6 +104,12 @@ def update_appearance(
         brand_name=body.brand_name,
         primary_color=color.strip() if color is not None else None,
     )
+    from app.infrastructure import branding_storage
+
+    data["has_custom_logo_icon"] = branding_storage.has_custom_logo(settings, ctx.user.tenant_id, "icon")
+    data["has_custom_logo_full"] = branding_storage.has_custom_logo(settings, ctx.user.tenant_id, "full")
+    data["logo_icon_url"] = "/api/v1/branding/logo/icon"
+    data["logo_full_url"] = "/api/v1/branding/logo/full"
     return AppearancePublic(**data)
 
 

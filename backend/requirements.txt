@@ -12,3 +12,4 @@ httpx==0.28.1
 python-multipart==0.0.20
 PyMySQL==1.1.1
 IMAPClient==3.0.1
+Pillow==11.1.0

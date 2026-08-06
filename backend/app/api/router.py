@@ -2,13 +2,14 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import accounts, admin, archive, auth, dashboard, install, i18n, jobs
+from app.api.v1 import accounts, admin, archive, auth, branding, dashboard, install, i18n, jobs
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(install.router)
 api_router.include_router(auth.router)
 api_router.include_router(admin.router)
 api_router.include_router(i18n.router)
+api_router.include_router(branding.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(accounts.router)
 api_router.include_router(jobs.router)

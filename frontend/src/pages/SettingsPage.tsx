@@ -23,18 +23,21 @@ import {
   getMicrosoftSettings,
   getSmtpSettings,
   getSystemSettings,
+  resetBrandingLogo,
   setTenantLocale,
   testSmtpSettings,
   updateAppearance,
   updateMicrosoftSettings,
   updateSmtpSettings,
   updateSystemSettings,
+  uploadBrandingLogo,
   type EmailTemplateBlock,
   type EmailTemplates,
   type MicrosoftSettings,
   type SmtpSettings,
   type SystemSettings,
 } from "../api/client";
+import BrandLogo from "../components/BrandLogo";
 import { useLocale } from "../i18n/LocaleContext";
 
 const emptyBlock = (): EmailTemplateBlock => ({
@@ -118,6 +121,9 @@ export default function SettingsPage() {
   const [brandName, setBrandName] = useState("");
   const [primaryColor, setPrimaryColor] = useState("");
   const [appearanceSaving, setAppearanceSaving] = useState(false);
+  const [logoBust, setLogoBust] = useState(() => Date.now());
+  const [hasCustomIcon, setHasCustomIcon] = useState(false);
+  const [hasCustomFull, setHasCustomFull] = useState(false);
 
   useEffect(() => {
     getSmtpSettings()
@@ -146,6 +152,9 @@ export default function SettingsPage() {
       .then((a) => {
         setBrandName(a.brand_name || "");
         setPrimaryColor(a.primary_color || "");
+        setHasCustomIcon(!!a.has_custom_logo_icon);
+        setHasCustomFull(!!a.has_custom_logo_full);
+        setLogoBust(Date.now());
       })
       .catch(() => undefined);
   }, [t]);
@@ -264,11 +273,43 @@ export default function SettingsPage() {
       });
       setBrandName(saved.brand_name || "");
       setPrimaryColor(saved.primary_color || "");
+      setHasCustomIcon(!!saved.has_custom_logo_icon);
+      setHasCustomFull(!!saved.has_custom_logo_full);
       setInfo(t("settings", "appearanceSaved"));
     } catch (err: unknown) {
       setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
     } finally {
       setAppearanceSaving(false);
+    }
+  }
+
+  async function onUploadLogo(kind: "icon" | "full", file: File | null) {
+    if (!file) return;
+    setError(null);
+    setInfo(null);
+    try {
+      await uploadBrandingLogo(kind, file);
+      const a = await getAppearance();
+      setHasCustomIcon(!!a.has_custom_logo_icon);
+      setHasCustomFull(!!a.has_custom_logo_full);
+      setLogoBust(Date.now());
+      setInfo(t("settings", "logoUploaded"));
+    } catch (err: unknown) {
+      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
+    }
+  }
+
+  async function onResetLogo(kind: "icon" | "full") {
+    setError(null);
+    try {
+      await resetBrandingLogo(kind);
+      const a = await getAppearance();
+      setHasCustomIcon(!!a.has_custom_logo_icon);
+      setHasCustomFull(!!a.has_custom_logo_full);
+      setLogoBust(Date.now());
+      setInfo(t("settings", "logoReset"));
+    } catch (err: unknown) {
+      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
     }
   }
 
@@ -564,8 +605,41 @@ export default function SettingsPage() {
         )}
 
         {tab === 5 && (
-          <Stack spacing={2} maxWidth={480}>
+          <Stack spacing={2} maxWidth={560}>
             <Typography color="text.secondary">{t("settings", "sectionAppearanceHint")}</Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={3} alignItems="center">
+              <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "#fff" }}>
+                <BrandLogo kind="icon" height={64} maxWidth={64} cacheBust={logoBust} />
+              </Box>
+              <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "#fff" }}>
+                <BrandLogo kind="full" height={120} maxWidth={200} cacheBust={logoBust} />
+              </Box>
+            </Stack>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <Button variant="outlined" component="label">
+                {t("settings", "logoUploadIcon")}
+                <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => void onUploadLogo("icon", e.target.files?.[0] || null)} />
+              </Button>
+              <Button variant="outlined" component="label">
+                {t("settings", "logoUploadFull")}
+                <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => void onUploadLogo("full", e.target.files?.[0] || null)} />
+              </Button>
+            </Stack>
+            <Stack direction="row" spacing={2}>
+              {hasCustomIcon && (
+                <Button size="small" onClick={() => void onResetLogo("icon")}>
+                  {t("settings", "logoResetIcon")}
+                </Button>
+              )}
+              {hasCustomFull && (
+                <Button size="small" onClick={() => void onResetLogo("full")}>
+                  {t("settings", "logoResetFull")}
+                </Button>
+              )}
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              {t("settings", "logoHint")}
+            </Typography>
             <TextField
               label={t("settings", "brandName")}
               value={brandName}

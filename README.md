@@ -8,6 +8,10 @@
 
 ![MailArchive dashboard](docs/images/dashboard.png)
 
+<p align="center">
+  <img src="docs/images/logo-full.png" alt="MailArchive" width="220" />
+</p>
+
 > Open source self-hosted email archiving platform for organizations.
 
 MailArchive helps you **retain searchable email history**, free mailbox quota, and keep full control of your data — without expensive proprietary archives or cloud lock-in.

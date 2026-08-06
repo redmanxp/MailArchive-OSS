@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import { getInstallStatus } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import BrandLogo from "../components/BrandLogo";
 import { useLocale } from "../i18n/LocaleContext";
 
 export default function LoginPage() {
@@ -83,10 +84,10 @@ export default function LoginPage() {
       )}
       <Container maxWidth="xs">
         <Paper elevation={0} sx={{ p: 4, border: "1px solid #d5dee5" }}>
-          <Typography variant="h4" gutterBottom>
-            {t("login", "title")}
-          </Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+            <BrandLogo kind="full" height={140} maxWidth={260} alt="MailArchive" />
+          </Box>
+          <Typography color="text.secondary" sx={{ mb: 3, textAlign: "center" }}>
             {t("login", "subtitle")}
           </Typography>
           {error && (

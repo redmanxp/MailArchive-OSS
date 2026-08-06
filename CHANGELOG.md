@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backend pytest smoke suite + Ruff in CI
 - SMTP Reply-To and configurable timeout (5–120s)
 - Tenant appearance: brand name + primary color in Settings → Appearance
+- Default MailArchive logos (icon + full) with admin upload/reset via branding API
 - Real Ko-fi support link (https://ko-fi.com/redmanxp)
 - Frontend ESLint (typescript-eslint + react-hooks) in CI
 - App-wide i18n (ES/EN) for UI and email templates; language packs under `backend/app/i18n/locales/`

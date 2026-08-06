@@ -131,6 +131,10 @@ export async function setTenantLocale(locale: string) {
 export type AppearanceSettings = {
   brand_name: string;
   primary_color: string;
+  has_custom_logo_icon?: boolean;
+  has_custom_logo_full?: boolean;
+  logo_icon_url?: string;
+  logo_full_url?: string;
 };
 
 export async function getAppearance() {
@@ -140,6 +144,20 @@ export async function getAppearance() {
 
 export async function updateAppearance(payload: Partial<AppearanceSettings>) {
   const { data } = await api.put<AppearanceSettings>("/api/v1/i18n/appearance", payload);
+  return data;
+}
+
+export async function uploadBrandingLogo(kind: "icon" | "full", file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<{ message: string }>(`/api/v1/branding/logo/${kind}`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function resetBrandingLogo(kind: "icon" | "full") {
+  const { data } = await api.delete<{ message: string }>(`/api/v1/branding/logo/${kind}`);
   return data;
 }
 

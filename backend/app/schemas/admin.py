@@ -79,6 +79,8 @@ class SmtpSettingsPublic(BaseModel):
     user: str = ""
     from_email: str = ""
     from_name: str = "MailArchive"
+    reply_to: str = ""
+    timeout_seconds: int = 30
     starttls: bool = True
     enabled: bool = True
     configured: bool = False
@@ -96,6 +98,8 @@ class SmtpSettingsUpdate(BaseModel):
     password: str | None = None
     from_email: str | None = None
     from_name: str | None = None
+    reply_to: str | None = None
+    timeout_seconds: int | None = Field(default=None, ge=5, le=120)
     starttls: bool | None = True
     enabled: bool | None = True
     email_templates: EmailTemplatesPublic | None = None
@@ -107,6 +111,8 @@ class SmtpTestRequest(BaseModel):
     user: str | None = None
     password: str | None = None
     from_email: str | None = None
+    reply_to: str | None = None
+    timeout_seconds: int | None = Field(default=None, ge=5, le=120)
     starttls: bool | None = True
 
 

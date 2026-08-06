@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import {
   Box,
@@ -7,10 +8,14 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  ThemeProvider,
   Typography,
 } from "@mui/material";
+import { createTheme } from "@mui/material/styles";
+import { getAppearance } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useLocale } from "../i18n/LocaleContext";
+import { theme as baseTheme } from "../theme";
 import { useLabels } from "../utils/labels";
 
 const DRAWER_WIDTH = 232;
@@ -38,8 +43,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isAdmin = user?.role === "admin";
   const roleText = roleLabel(user?.role);
+  const [brandName, setBrandName] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("");
 
-  return (
+  useEffect(() => {
+    getAppearance()
+      .then((a) => {
+        setBrandName(a.brand_name || "");
+        setPrimaryColor(a.primary_color || "");
+      })
+      .catch(() => undefined);
+  }, [location.pathname]);
+
+  const themed = useMemo(() => {
+    if (!primaryColor) return baseTheme;
+    return createTheme({
+      ...baseTheme,
+      palette: {
+        ...baseTheme.palette,
+        primary: { main: primaryColor },
+      },
+    });
+  }, [primaryColor]);
+
+  const title = brandName || t("common", "appName", "MailArchive");
+
+  const body = (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
       <Drawer
         variant="permanent"
@@ -59,8 +88,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <Box sx={{ px: 2.5, py: 2.25 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2 }}>
-            {t("common", "appName", "MailArchive")}
+          <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2 }} noWrap title={title}>
+            {title}
           </Typography>
         </Box>
         <Divider sx={{ borderColor: "rgba(255,255,255,0.16)" }} />
@@ -155,4 +184,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </Box>
     </Box>
   );
+
+  if (!primaryColor) return body;
+  return <ThemeProvider theme={themed}>{body}</ThemeProvider>;
 }

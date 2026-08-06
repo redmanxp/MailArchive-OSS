@@ -231,6 +231,8 @@ def get_smtp_settings(
         "user": settings.smtp_user,
         "from_email": settings.smtp_from or settings.smtp_user,
         "from_name": settings.app_name,
+        "reply_to": settings.smtp_reply_to,
+        "timeout_seconds": settings.smtp_timeout_seconds,
         "starttls": settings.smtp_tls,
         "enabled": bool(settings.smtp_host),
         "configured": bool(settings.smtp_host and settings.smtp_user),

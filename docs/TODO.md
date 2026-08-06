@@ -12,9 +12,9 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 |---|--------|-----|--------|
 | C1 | Datos/storage editable (SQLite vs MySQL + STORAGE_ROOT) | P1 | **Hecho** (overrides en `/data/system_overrides.json`; DB → reinicio API) |
 | C2 | Wizard install: DB + carpeta archivos | P1 | **Hecho** (InstallPage + overrides; 409 si cambia motor) |
-| C3 | Apariencia / branding | P2 | Stub |
+| C3 | Apariencia / branding | P2 | **Hecho** (nombre org + color primario #RRGGBB) |
 | C4 | Microsoft Graph desde UI | P1 | **Hecho** (Settings → Microsoft 365) |
-| C5 | SMTP reply-to / timeout | P2 | Pendiente |
+| C5 | SMTP reply-to / timeout | P2 | **Hecho** |
 | C6 | Warning secretos débiles en prod | P1 | Hecho |
 
 ---

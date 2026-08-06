@@ -19,11 +19,13 @@ import {
 import AppLayout from "../layouts/AppLayout";
 import PageShell from "../components/PageShell";
 import {
+  getAppearance,
   getMicrosoftSettings,
   getSmtpSettings,
   getSystemSettings,
   setTenantLocale,
   testSmtpSettings,
+  updateAppearance,
   updateMicrosoftSettings,
   updateSmtpSettings,
   updateSystemSettings,
@@ -113,6 +115,9 @@ export default function SettingsPage() {
   const [langSaving, setLangSaving] = useState(false);
   const [dataSaving, setDataSaving] = useState(false);
   const [msSaving, setMsSaving] = useState(false);
+  const [brandName, setBrandName] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("");
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
 
   useEffect(() => {
     getSmtpSettings()
@@ -136,6 +141,12 @@ export default function SettingsPage() {
       .catch(() => undefined);
     getMicrosoftSettings()
       .then(setMicrosoft)
+      .catch(() => undefined);
+    getAppearance()
+      .then((a) => {
+        setBrandName(a.brand_name || "");
+        setPrimaryColor(a.primary_color || "");
+      })
       .catch(() => undefined);
   }, [t]);
 
@@ -242,6 +253,25 @@ export default function SettingsPage() {
     }
   }
 
+  async function onSaveAppearance() {
+    setAppearanceSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const saved = await updateAppearance({
+        brand_name: brandName,
+        primary_color: primaryColor,
+      });
+      setBrandName(saved.brand_name || "");
+      setPrimaryColor(saved.primary_color || "");
+      setInfo(t("settings", "appearanceSaved"));
+    } catch (err: unknown) {
+      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
+    } finally {
+      setAppearanceSaving(false);
+    }
+  }
+
   if (!settings) {
     return (
       <AppLayout>
@@ -313,6 +343,20 @@ export default function SettingsPage() {
             />
             <TextField label={t("settings", "fromEmail")} value={settings.from_email} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} />
             <TextField label={t("settings", "fromName")} value={settings.from_name} onChange={(e) => setSettings({ ...settings, from_name: e.target.value })} />
+            <TextField
+              label={t("settings", "replyTo")}
+              value={settings.reply_to || ""}
+              onChange={(e) => setSettings({ ...settings, reply_to: e.target.value })}
+              helperText={t("settings", "replyToHint")}
+            />
+            <TextField
+              label={t("settings", "timeoutSeconds")}
+              type="number"
+              value={settings.timeout_seconds ?? 30}
+              onChange={(e) => setSettings({ ...settings, timeout_seconds: Number(e.target.value) })}
+              helperText={t("settings", "timeoutHint")}
+              inputProps={{ min: 5, max: 120 }}
+            />
             <FormControlLabel
               control={<Switch checked={settings.starttls} onChange={(e) => setSettings({ ...settings, starttls: e.target.checked })} />}
               label={t("settings", "starttls")}
@@ -520,9 +564,32 @@ export default function SettingsPage() {
         )}
 
         {tab === 5 && (
-          <Stack spacing={2}>
+          <Stack spacing={2} maxWidth={480}>
             <Typography color="text.secondary">{t("settings", "sectionAppearanceHint")}</Typography>
-            <Alert severity="info">{t("settings", "appearanceSoon")}</Alert>
+            <TextField
+              label={t("settings", "brandName")}
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              helperText={t("settings", "brandNameHint")}
+              fullWidth
+            />
+            <TextField
+              label={t("settings", "primaryColor")}
+              value={primaryColor}
+              onChange={(e) => setPrimaryColor(e.target.value)}
+              helperText={t("settings", "primaryColorHint")}
+              placeholder="#0B3D5C"
+              fullWidth
+            />
+            <Button
+              type="button"
+              variant="contained"
+              disabled={appearanceSaving}
+              onClick={() => void onSaveAppearance()}
+              sx={{ alignSelf: "flex-start" }}
+            >
+              {t("settings", "appearanceSave")}
+            </Button>
           </Stack>
         )}
       </Box>

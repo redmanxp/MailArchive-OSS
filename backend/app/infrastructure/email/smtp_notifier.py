@@ -71,7 +71,7 @@ class SmtpNotifier(INotifier):
     """INotifier implementation backed by smtplib.
 
     ``smtp_config`` keys: host, port, user, password, from_email, from_name,
-    starttls, enabled, email_templates (optional).
+    reply_to, timeout_seconds, starttls, enabled, email_templates (optional).
     """
 
     def __init__(self, smtp_config: dict | None) -> None:
@@ -82,6 +82,13 @@ class SmtpNotifier(INotifier):
 
     def _brand(self) -> str:
         return str(self._cfg.get("from_name") or "MailArchive")
+
+    def _timeout(self) -> float:
+        try:
+            raw = int(self._cfg.get("timeout_seconds") or 30)
+        except (TypeError, ValueError):
+            raw = 30
+        return float(max(5, min(120, raw)))
 
     def _send(
         self,
@@ -98,7 +105,9 @@ class SmtpNotifier(INotifier):
         password = self._cfg.get("password", "")
         from_email = self._cfg.get("from_email") or user
         from_name = self._cfg.get("from_name", "MailArchive")
+        reply_to = (self._cfg.get("reply_to") or "").strip()
         use_tls = bool(self._cfg.get("starttls", True))
+        timeout = self._timeout()
 
         if not host or not user:
             return EmailResult(ok=False, detail="SMTP incompleto (host/user)")
@@ -108,6 +117,8 @@ class SmtpNotifier(INotifier):
             msg["From"] = f"{from_name} <{from_email}>"
             msg["To"] = to_email
             msg["Subject"] = subject
+            if reply_to:
+                msg["Reply-To"] = reply_to
             msg.attach(MIMEText(body_text, "plain", "utf-8"))
             msg.attach(MIMEText(body_html, "html", "utf-8"))
         else:
@@ -115,18 +126,27 @@ class SmtpNotifier(INotifier):
             msg["From"] = f"{from_name} <{from_email}>"
             msg["To"] = to_email
             msg["Subject"] = subject
+            if reply_to:
+                msg["Reply-To"] = reply_to
             msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
         try:
-            logger.info("Enviando email SMTP a=%s host=%s html=%s", to_email, host, bool(body_html))
+            logger.info(
+                "Enviando email SMTP a=%s host=%s html=%s timeout=%s reply_to=%s",
+                to_email,
+                host,
+                bool(body_html),
+                timeout,
+                bool(reply_to),
+            )
             # Port 465 → implicit TLS; otherwise STARTTLS when enabled (typical 587).
             if use_tls and port == 465:
                 context = ssl.create_default_context()
-                with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as server:
+                with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as server:
                     server.login(user, password)
                     server.sendmail(from_email, [to_email], msg.as_string())
             else:
-                with smtplib.SMTP(host, port, timeout=30) as server:
+                with smtplib.SMTP(host, port, timeout=timeout) as server:
                     if use_tls:
                         server.starttls(context=ssl.create_default_context())
                     if password:
@@ -248,13 +268,14 @@ class SmtpNotifier(INotifier):
         user = self._cfg.get("user", "")
         password = self._cfg.get("password", "")
         use_tls = bool(self._cfg.get("starttls", True))
+        timeout = self._timeout()
         try:
             if use_tls and port == 465:
                 context = ssl.create_default_context()
-                with smtplib.SMTP_SSL(host, port, timeout=15, context=context) as server:
+                with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as server:
                     server.login(user, password)
             else:
-                with smtplib.SMTP(host, port, timeout=15) as server:
+                with smtplib.SMTP(host, port, timeout=timeout) as server:
                     if use_tls:
                         server.starttls(context=ssl.create_default_context())
                     if password:

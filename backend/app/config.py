@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@example.com"
+    smtp_reply_to: str = ""
+    smtp_timeout_seconds: int = 30
     smtp_tls: bool = True
 
     install_tenant_name: str = "Acme"

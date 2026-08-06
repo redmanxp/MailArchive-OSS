@@ -55,6 +55,30 @@ class SqlAlchemyTenantSettingsRepository:
         self._db.flush()
         return code
 
+    def get_appearance(self, tenant_id: int) -> dict:
+        """Org branding fields stored under ``features``."""
+        row = self.get(tenant_id)
+        features = dict(row.features or {}) if row else {}
+        return {
+            "brand_name": str(features.get("brand_name") or "").strip(),
+            "primary_color": str(features.get("primary_color") or "").strip(),
+        }
+
+    def update_appearance(self, tenant_id: int, *, brand_name: str | None, primary_color: str | None) -> dict:
+        row = self.get(tenant_id)
+        if row is None:
+            row = TenantSettingsModel(tenant_id=tenant_id, features={}, smtp_config={})
+            self._db.add(row)
+            self._db.flush()
+        features = dict(row.features or {})
+        if brand_name is not None:
+            features["brand_name"] = brand_name.strip()[:80]
+        if primary_color is not None:
+            features["primary_color"] = primary_color.strip()[:7]
+        row.features = features
+        self._db.flush()
+        return self.get_appearance(tenant_id)
+
     def get_smtp_public(self, tenant_id: int) -> dict:
         """Settings for the admin UI (no password; templates always merged with defaults)."""
         row = self.get(tenant_id)
@@ -99,7 +123,17 @@ class SqlAlchemyTenantSettingsRepository:
             self._db.flush()
 
         current = dict(row.smtp_config or {})
-        for key in ("host", "port", "user", "from_email", "from_name", "starttls", "enabled"):
+        for key in (
+            "host",
+            "port",
+            "user",
+            "from_email",
+            "from_name",
+            "reply_to",
+            "timeout_seconds",
+            "starttls",
+            "enabled",
+        ):
             if key in payload and payload[key] is not None:
                 current[key] = payload[key]
 

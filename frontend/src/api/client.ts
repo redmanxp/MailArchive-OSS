@@ -101,6 +101,8 @@ export type SmtpSettings = {
   user: string;
   from_email: string;
   from_name: string;
+  reply_to?: string;
+  timeout_seconds?: number;
   starttls: boolean;
   enabled: boolean;
   configured: boolean;
@@ -123,6 +125,21 @@ export async function getInstallStatus() {
 
 export async function setTenantLocale(locale: string) {
   const { data } = await api.put<{ message: string }>("/api/v1/i18n/tenant-locale", { locale });
+  return data;
+}
+
+export type AppearanceSettings = {
+  brand_name: string;
+  primary_color: string;
+};
+
+export async function getAppearance() {
+  const { data } = await api.get<AppearanceSettings>("/api/v1/i18n/appearance");
+  return data;
+}
+
+export async function updateAppearance(payload: Partial<AppearanceSettings>) {
+  const { data } = await api.put<AppearanceSettings>("/api/v1/i18n/appearance", payload);
   return data;
 }
 

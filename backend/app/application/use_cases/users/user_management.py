@@ -32,6 +32,8 @@ def build_notifier(settings_repo: SqlAlchemyTenantSettingsRepository, tenant_id:
                 "password": settings.smtp_password,
                 "from_email": settings.smtp_from or settings.smtp_user,
                 "from_name": settings.app_name,
+                "reply_to": settings.smtp_reply_to,
+                "timeout_seconds": settings.smtp_timeout_seconds,
                 "starttls": settings.smtp_tls,
                 "enabled": True,
             }
@@ -542,6 +544,8 @@ class TestSmtpSettingsUseCase:
                 "user": payload.get("user"),
                 "password": payload.get("password") or "",
                 "from_email": payload.get("from_email") or payload.get("user"),
+                "reply_to": payload.get("reply_to") or "",
+                "timeout_seconds": payload.get("timeout_seconds") or 30,
                 "starttls": bool(payload.get("starttls", True)),
                 "enabled": True,
             }
@@ -549,6 +553,10 @@ class TestSmtpSettingsUseCase:
                 stored = self._repo.get_smtp_runtime(tenant_id)
                 if stored:
                     cfg["password"] = stored.get("password", "")
+                    if not cfg.get("timeout_seconds"):
+                        cfg["timeout_seconds"] = stored.get("timeout_seconds") or 30
+                    if not cfg.get("reply_to"):
+                        cfg["reply_to"] = stored.get("reply_to") or ""
             notifier = SmtpNotifier(cfg)
         else:
             notifier = build_notifier(self._repo, tenant_id, self._settings)

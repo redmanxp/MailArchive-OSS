@@ -263,12 +263,55 @@ export type SystemSettings = {
   mysql_host?: string | null;
   mysql_port?: number | null;
   mysql_database?: string | null;
+  mysql_user?: string | null;
   storage_root: string;
   editable: boolean;
+  restart_required?: boolean;
+  mysql_password_set?: boolean;
 };
 
 export async function getSystemSettings() {
   const { data } = await api.get<SystemSettings>("/api/v1/admin/settings/system");
+  return data;
+}
+
+export async function updateSystemSettings(
+  payload: Partial<{
+    storage_root: string;
+    db_engine: string;
+    mysql_host: string;
+    mysql_port: number;
+    mysql_user: string;
+    mysql_database: string;
+    mysql_password: string;
+  }>
+) {
+  const { data } = await api.put<SystemSettings>("/api/v1/admin/settings/system", payload);
+  return data;
+}
+
+export type MicrosoftSettings = {
+  client_id: string;
+  tenant_id: string;
+  redirect_uri: string;
+  configured: boolean;
+  secret_set: boolean;
+};
+
+export async function getMicrosoftSettings() {
+  const { data } = await api.get<MicrosoftSettings>("/api/v1/admin/settings/microsoft");
+  return data;
+}
+
+export async function updateMicrosoftSettings(
+  payload: Partial<{
+    client_id: string;
+    tenant_id: string;
+    redirect_uri: string;
+    client_secret: string;
+  }>
+) {
+  const { data } = await api.put<MicrosoftSettings>("/api/v1/admin/settings/microsoft", payload);
   return data;
 }
 

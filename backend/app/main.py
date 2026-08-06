@@ -65,6 +65,7 @@ app.include_router(api_router)
 @app.on_event("startup")
 def on_startup() -> None:
     from app.infrastructure.persistence.migrate import run_migrations
+    from app.infrastructure.system_overrides import clear_restart_flag
 
     # Prefer Alembic; create_all remains a safety net for empty / partially migrated DBs.
     try:
@@ -75,6 +76,10 @@ def on_startup() -> None:
     else:
         Base.metadata.create_all(bind=engine)
     _reclaim_orphaned_archive_jobs()
+    try:
+        clear_restart_flag()
+    except Exception:
+        logger.debug("Could not clear system override restart flag", exc_info=True)
     logger.info(
         "MailArchive started env=%s db_engine=%s port=%s",
         settings.app_env,

@@ -1,11 +1,12 @@
 /**
- * Admin settings: SMTP · Templates · Language · Data & storage · Appearance.
+ * Admin settings: SMTP · Templates · Language · Data & storage · Microsoft · Appearance.
  */
 import { FormEvent, useEffect, useState } from "react";
 import {
   Alert,
   Box,
   Button,
+  Chip,
   FormControlLabel,
   MenuItem,
   Stack,
@@ -18,13 +19,17 @@ import {
 import AppLayout from "../layouts/AppLayout";
 import PageShell from "../components/PageShell";
 import {
+  getMicrosoftSettings,
   getSmtpSettings,
   getSystemSettings,
   setTenantLocale,
   testSmtpSettings,
+  updateMicrosoftSettings,
   updateSmtpSettings,
+  updateSystemSettings,
   type EmailTemplateBlock,
   type EmailTemplates,
+  type MicrosoftSettings,
   type SmtpSettings,
   type SystemSettings,
 } from "../api/client";
@@ -72,20 +77,42 @@ function TemplateFields({
   );
 }
 
+function syncDataFormFromSystem(s: SystemSettings) {
+  return {
+    dbEngine: s.db_engine === "mysql" ? "mysql" : "sqlite",
+    mysqlHost: s.mysql_host || "",
+    mysqlPort: s.mysql_port ?? 3306,
+    mysqlUser: s.mysql_user || "",
+    mysqlDatabase: s.mysql_database || "",
+    storageRoot: s.storage_root || "",
+  };
+}
+
 export default function SettingsPage() {
   const { t, setLocale, locales, locale } = useLocale();
   const [tab, setTab] = useState(0);
   const [settings, setSettings] = useState<SmtpSettings | null>(null);
   const [system, setSystem] = useState<SystemSettings | null>(null);
+  const [microsoft, setMicrosoft] = useState<MicrosoftSettings | null>(null);
   const [templates, setTemplates] = useState<EmailTemplates>({
     locale: "es",
     invite: emptyBlock(),
     reset: emptyBlock(),
   });
   const [password, setPassword] = useState("");
+  const [mysqlPassword, setMysqlPassword] = useState("");
+  const [msSecret, setMsSecret] = useState("");
+  const [dbEngine, setDbEngine] = useState("sqlite");
+  const [mysqlHost, setMysqlHost] = useState("");
+  const [mysqlPort, setMysqlPort] = useState(3306);
+  const [mysqlUser, setMysqlUser] = useState("");
+  const [mysqlDatabase, setMysqlDatabase] = useState("");
+  const [storageRoot, setStorageRoot] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [langSaving, setLangSaving] = useState(false);
+  const [dataSaving, setDataSaving] = useState(false);
+  const [msSaving, setMsSaving] = useState(false);
 
   useEffect(() => {
     getSmtpSettings()
@@ -95,7 +122,20 @@ export default function SettingsPage() {
       })
       .catch((e) => setError(String(e?.response?.data?.detail || t("common", "error", "Error"))));
     getSystemSettings()
-      .then(setSystem)
+      .then((s) => {
+        setSystem(s);
+        const synced = syncDataFormFromSystem(s);
+        setDbEngine(synced.dbEngine);
+        setMysqlHost(synced.mysqlHost);
+        setMysqlPort(synced.mysqlPort);
+        setMysqlUser(synced.mysqlUser);
+        setMysqlDatabase(synced.mysqlDatabase);
+        setStorageRoot(synced.storageRoot);
+        setMysqlPassword("");
+      })
+      .catch(() => undefined);
+    getMicrosoftSettings()
+      .then(setMicrosoft)
       .catch(() => undefined);
   }, [t]);
 
@@ -146,6 +186,62 @@ export default function SettingsPage() {
     }
   }
 
+  async function onSaveData() {
+    setDataSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const payload: Parameters<typeof updateSystemSettings>[0] = {
+        storage_root: storageRoot,
+        db_engine: dbEngine,
+      };
+      if (dbEngine === "mysql") {
+        payload.mysql_host = mysqlHost;
+        payload.mysql_port = Number(mysqlPort);
+        payload.mysql_user = mysqlUser;
+        payload.mysql_database = mysqlDatabase;
+        if (mysqlPassword) payload.mysql_password = mysqlPassword;
+      }
+      const saved = await updateSystemSettings(payload);
+      setSystem(saved);
+      const synced = syncDataFormFromSystem(saved);
+      setDbEngine(synced.dbEngine);
+      setMysqlHost(synced.mysqlHost);
+      setMysqlPort(synced.mysqlPort);
+      setMysqlUser(synced.mysqlUser);
+      setMysqlDatabase(synced.mysqlDatabase);
+      setStorageRoot(synced.storageRoot);
+      setMysqlPassword("");
+      setInfo(saved.restart_required ? t("settings", "dataRestartRequired") : t("settings", "dataSaved"));
+    } catch (err: unknown) {
+      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
+    } finally {
+      setDataSaving(false);
+    }
+  }
+
+  async function onSaveMicrosoft() {
+    if (!microsoft) return;
+    setMsSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const saved = await updateMicrosoftSettings({
+        client_id: microsoft.client_id,
+        tenant_id: microsoft.tenant_id,
+        redirect_uri: microsoft.redirect_uri,
+        ...(msSecret ? { client_secret: msSecret } : {}),
+      });
+      setMicrosoft(saved);
+      setMsSecret("");
+      setInfo(t("settings", "msSaved"));
+    } catch (err: unknown) {
+      setError(String((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t("common", "error")));
+    } finally {
+      setMsSaving(false);
+    }
+  }
+
   if (!settings) {
     return (
       <AppLayout>
@@ -171,7 +267,11 @@ export default function SettingsPage() {
             )}
             {info && (
               <Alert
-                severity={String(info).startsWith(failedPrefix) ? "warning" : "success"}
+                severity={
+                  String(info).startsWith(failedPrefix) || info === t("settings", "dataRestartRequired")
+                    ? "warning"
+                    : "success"
+                }
                 onClose={() => setInfo(null)}
                 sx={{ mt: error ? 1 : 0 }}
               >
@@ -186,6 +286,7 @@ export default function SettingsPage() {
             <Tab label={t("settings", "tabTemplates")} />
             <Tab label={t("settings", "tabLanguage")} />
             <Tab label={t("settings", "tabData")} />
+            <Tab label={t("settings", "tabMicrosoft")} />
             <Tab label={t("settings", "tabAppearance")} />
           </Tabs>
         }
@@ -298,34 +399,61 @@ export default function SettingsPage() {
             {system ? (
               <>
                 <TextField
+                  select
                   label={t("settings", "dataEngine")}
-                  value={
-                    system.db_engine === "sqlite"
-                      ? t("settings", "dataEngineSqlite")
-                      : system.db_engine === "mysql"
-                        ? t("settings", "dataEngineMysql")
-                        : system.db_engine
-                  }
+                  value={dbEngine}
+                  onChange={(e) => setDbEngine(e.target.value)}
                   fullWidth
-                  InputProps={{ readOnly: true }}
+                >
+                  <MenuItem value="sqlite">{t("settings", "dataEngineSqlite")}</MenuItem>
+                  <MenuItem value="mysql">{t("settings", "dataEngineMysql")}</MenuItem>
+                </TextField>
+                {dbEngine === "mysql" && (
+                  <>
+                    <TextField
+                      label={t("settings", "dataDbHost")}
+                      value={mysqlHost}
+                      onChange={(e) => setMysqlHost(e.target.value)}
+                      fullWidth
+                    />
+                    <TextField
+                      label={t("settings", "port")}
+                      type="number"
+                      value={mysqlPort}
+                      onChange={(e) => setMysqlPort(Number(e.target.value))}
+                      fullWidth
+                    />
+                    <TextField
+                      label={t("settings", "dataDbUser")}
+                      value={mysqlUser}
+                      onChange={(e) => setMysqlUser(e.target.value)}
+                      fullWidth
+                    />
+                    <TextField
+                      label={t("settings", "dataDbName")}
+                      value={mysqlDatabase}
+                      onChange={(e) => setMysqlDatabase(e.target.value)}
+                      fullWidth
+                    />
+                    <TextField
+                      label={t("settings", "dataDbPassword")}
+                      type="password"
+                      value={mysqlPassword}
+                      onChange={(e) => setMysqlPassword(e.target.value)}
+                      helperText={t("settings", "dataDbPasswordHint")}
+                      fullWidth
+                    />
+                  </>
+                )}
+                <TextField
+                  label={t("settings", "dataStorageRoot")}
+                  value={storageRoot}
+                  onChange={(e) => setStorageRoot(e.target.value)}
+                  fullWidth
                 />
                 <TextField
                   label={t("settings", "dataDbLabel")}
                   value={system.database_label}
-                  fullWidth
-                  InputProps={{ readOnly: true }}
-                />
-                {system.db_engine !== "sqlite" && system.mysql_host && (
-                  <TextField
-                    label={t("settings", "dataDbHost")}
-                    value={`${system.mysql_host}:${system.mysql_port ?? ""}`}
-                    fullWidth
-                    InputProps={{ readOnly: true }}
-                  />
-                )}
-                <TextField
-                  label={t("settings", "dataStorageRoot")}
-                  value={system.storage_root}
                   fullWidth
                   InputProps={{ readOnly: true }}
                 />
@@ -335,16 +463,63 @@ export default function SettingsPage() {
                   fullWidth
                   InputProps={{ readOnly: true }}
                 />
+                <Button type="button" variant="contained" disabled={dataSaving} onClick={() => void onSaveData()} sx={{ alignSelf: "flex-start" }}>
+                  {t("settings", "dataSave")}
+                </Button>
               </>
             ) : (
               <Typography>{t("common", "loading")}</Typography>
             )}
-            <Alert severity="info">{t("settings", "dataReadonlyNote")}</Alert>
-            <Alert severity="warning">{t("settings", "dataComingSoon")}</Alert>
           </Stack>
         )}
 
         {tab === 4 && (
+          <Stack spacing={2} maxWidth={640}>
+            <Typography color="text.secondary">{t("settings", "sectionMicrosoftHint")}</Typography>
+            {microsoft ? (
+              <>
+                <Chip
+                  label={microsoft.configured ? t("settings", "msConfigured") : t("settings", "msNotConfigured")}
+                  color={microsoft.configured ? "success" : "warning"}
+                  sx={{ alignSelf: "flex-start" }}
+                />
+                <TextField
+                  label={t("settings", "msClientId")}
+                  value={microsoft.client_id}
+                  onChange={(e) => setMicrosoft({ ...microsoft, client_id: e.target.value })}
+                  fullWidth
+                />
+                <TextField
+                  label={t("settings", "msTenantId")}
+                  value={microsoft.tenant_id}
+                  onChange={(e) => setMicrosoft({ ...microsoft, tenant_id: e.target.value })}
+                  fullWidth
+                />
+                <TextField
+                  label={t("settings", "msRedirect")}
+                  value={microsoft.redirect_uri}
+                  onChange={(e) => setMicrosoft({ ...microsoft, redirect_uri: e.target.value })}
+                  fullWidth
+                />
+                <TextField
+                  label={t("settings", "msSecret")}
+                  type="password"
+                  value={msSecret}
+                  onChange={(e) => setMsSecret(e.target.value)}
+                  helperText={t("settings", "msSecretHint")}
+                  fullWidth
+                />
+                <Button type="button" variant="contained" disabled={msSaving} onClick={() => void onSaveMicrosoft()} sx={{ alignSelf: "flex-start" }}>
+                  {t("settings", "msSave")}
+                </Button>
+              </>
+            ) : (
+              <Typography>{t("common", "loading")}</Typography>
+            )}
+          </Stack>
+        )}
+
+        {tab === 5 && (
           <Stack spacing={2}>
             <Typography color="text.secondary">{t("settings", "sectionAppearanceHint")}</Typography>
             <Alert severity="info">{t("settings", "appearanceSoon")}</Alert>

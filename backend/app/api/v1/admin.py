@@ -24,7 +24,7 @@ from app.application.use_cases.users.user_management import (
     UpdateSmtpSettingsUseCase,
     UpdateUserUseCase,
 )
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings, reload_settings
 from app.domain.enums.roles import UserRole, UserStatus
 from app.domain.exceptions import DomainError, ValidationError
 from app.infrastructure.persistence.database import get_db
@@ -36,15 +36,19 @@ from app.infrastructure.persistence.repositories.sqlalchemy_repos import (
 from app.infrastructure.persistence.repositories.tenant_settings_repo import SqlAlchemyTenantSettingsRepository
 from app.infrastructure.security.argon2_hasher import Argon2PasswordHasher
 from app.infrastructure.security.fernet_cipher import CredentialCipher
+from app.infrastructure import system_overrides
 from app.schemas.admin import (
     CreateUserRequest,
     CreateUserResponse,
+    MicrosoftSettingsPublic,
+    MicrosoftSettingsUpdate,
     ResetPasswordRequest,
     SmtpSettingsPublic,
     SmtpSettingsUpdate,
     SmtpTestRequest,
     SmtpTestResponse,
     SystemSettingsPublic,
+    SystemSettingsUpdate,
     UpdateUserRequest,
     UserAdminPublic,
 )
@@ -245,29 +249,54 @@ def get_system_settings(
     ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SystemSettingsPublic:
-    """Expose non-secret DB/storage runtime config (read-only)."""
-    engine = (settings.db_engine or "sqlite").lower().strip()
-    if engine == "sqlite":
-        url = settings.build_database_url()
-        # sqlite:////data/mailarchive.db or sqlite:///./path
-        label = url.split("sqlite:///")[-1] if "sqlite" in url else url
-        return SystemSettingsPublic(
-            app_env=settings.app_env,
-            db_engine="sqlite",
-            database_label=label,
-            storage_root=settings.storage_root,
-            editable=False,
-        )
-    return SystemSettingsPublic(
-        app_env=settings.app_env,
-        db_engine=engine,
-        database_label=settings.mysql_database,
-        mysql_host=settings.mysql_host,
-        mysql_port=settings.mysql_port,
-        mysql_database=settings.mysql_database,
-        storage_root=settings.storage_root,
-        editable=False,
-    )
+    return SystemSettingsPublic(**system_overrides.public_system_view(settings))
+
+
+@router.put("/settings/system", response_model=SystemSettingsPublic)
+def update_system_settings(
+    body: SystemSettingsUpdate,
+    ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SystemSettingsPublic:
+    from fastapi import HTTPException
+
+    payload = body.model_dump(exclude_unset=True)
+    engine = payload.get("db_engine")
+    if engine is not None and engine not in ("sqlite", "mysql"):
+        raise HTTPException(status_code=400, detail="db_engine must be sqlite or mysql")
+    system_overrides.update_system_overrides(settings, payload)
+    reload_settings()
+    return SystemSettingsPublic(**system_overrides.public_system_view(get_settings()))
+
+
+@router.get("/settings/microsoft", response_model=MicrosoftSettingsPublic)
+def get_microsoft_settings(
+    ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> MicrosoftSettingsPublic:
+    return MicrosoftSettingsPublic(**system_overrides.public_microsoft_view(settings))
+
+
+@router.put("/settings/microsoft", response_model=MicrosoftSettingsPublic)
+def update_microsoft_settings(
+    body: MicrosoftSettingsUpdate,
+    ctx: Annotated[CurrentUserContext, Depends(require_roles(UserRole.ADMIN))],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> MicrosoftSettingsPublic:
+    payload = body.model_dump(exclude_unset=True)
+    # Map API names to override keys
+    mapped: dict = {}
+    if "client_id" in payload:
+        mapped["microsoft_client_id"] = payload["client_id"]
+    if "tenant_id" in payload:
+        mapped["microsoft_tenant_id"] = payload["tenant_id"]
+    if "redirect_uri" in payload:
+        mapped["microsoft_redirect_uri"] = payload["redirect_uri"]
+    if "client_secret" in payload:
+        mapped["microsoft_client_secret"] = payload["client_secret"]
+    system_overrides.update_microsoft_overrides(settings, mapped)
+    reload_settings()
+    return MicrosoftSettingsPublic(**system_overrides.public_microsoft_view(get_settings()))
 
 
 @router.put("/settings/smtp", response_model=SmtpSettingsPublic)

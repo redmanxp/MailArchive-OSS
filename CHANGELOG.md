@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - App-wide i18n (ES/EN) for UI and email templates; language packs under `backend/app/i18n/locales/`
-- Settings tabs: SMTP, templates, language, data/storage (read-only), appearance stub
+- Settings tabs: SMTP, templates, language, data/storage (editable), Microsoft 365 OAuth, appearance stub
+- File-based system overrides (`/data/system_overrides.json`) for DB/storage/Graph without editing `.env`
 - Dashboard metrics: users, accounts, mails, storage bytes, attachments, active jobs, DB/storage health
 - Users create/edit as a dedicated form (`/app/users/new`, `/app/users/:id`) with `+` on the list
 - PageShell layout: fixed header/filters, scrollable body, pagination footer
@@ -19,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backup & restore notes (`docs/BACKUP.md`)
 - JWT refresh interceptor on frontend 401 responses
 - Production warning when default/weak secrets are detected
+- DOMPurify for HTML mail bodies + basic CSP meta on the SPA
+- GitHub issue / PR templates and Contributor Covenant
 
 ### Changed
 

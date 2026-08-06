@@ -116,7 +116,7 @@ class SmtpTestResponse(BaseModel):
 
 
 class SystemSettingsPublic(BaseModel):
-    """Non-secret runtime data/storage config for admins (read-only until editable UI ships)."""
+    """Data/storage config for admins (editable via file overrides)."""
 
     app_env: str
     db_engine: str
@@ -124,5 +124,33 @@ class SystemSettingsPublic(BaseModel):
     mysql_host: str | None = None
     mysql_port: int | None = None
     mysql_database: str | None = None
+    mysql_user: str | None = None
     storage_root: str
-    editable: bool = False
+    editable: bool = True
+    restart_required: bool = False
+    mysql_password_set: bool = False
+
+
+class SystemSettingsUpdate(BaseModel):
+    storage_root: str | None = None
+    db_engine: str | None = None
+    mysql_host: str | None = None
+    mysql_port: int | None = None
+    mysql_user: str | None = None
+    mysql_database: str | None = None
+    mysql_password: str | None = None
+
+
+class MicrosoftSettingsPublic(BaseModel):
+    client_id: str = ""
+    tenant_id: str = "common"
+    redirect_uri: str = ""
+    configured: bool = False
+    secret_set: bool = False
+
+
+class MicrosoftSettingsUpdate(BaseModel):
+    client_id: str | None = None
+    tenant_id: str | None = None
+    redirect_uri: str | None = None
+    client_secret: str | None = None

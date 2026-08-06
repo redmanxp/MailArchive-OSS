@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Box, Paper, Typography } from "@mui/material";
+import DOMPurify from "dompurify";
 import { useLocale } from "../i18n/LocaleContext";
 
 type Props = {
@@ -11,9 +12,11 @@ type Props = {
 };
 
 function wrapHtmlDocument(html: string): string {
-  const cleaned = html
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "");
+  const cleaned = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form"],
+    FORBID_ATTR: ["srcdoc"],
+  });
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><base target="_blank"/><style>
     body{margin:12px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45;color:#1a1a1a;word-wrap:break-word;}
     img{max-width:100%;height:auto;}

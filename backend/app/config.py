@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    """Runtime configuration loaded from environment / .env."""
+    """Runtime configuration loaded from environment / .env (+ optional file overrides)."""
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
@@ -55,10 +55,8 @@ class Settings(BaseSettings):
     install_admin_email: str = "admin@example.com"
     install_admin_name: str = "Administrator"
 
-    # Public self-register from the login page (invite/reset link). Off by default for OSS.
     feature_public_register: bool = False
 
-    # In-process limiter for login/register/install (see app.api.rate_limit).
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 20
     rate_limit_window_seconds: int = 60
@@ -81,6 +79,8 @@ class Settings(BaseSettings):
         if self.database_url:
             return self.database_url
         if self.db_engine == "sqlite":
+            if Path("/data").is_dir():
+                return "sqlite:////data/mailarchive.db"
             db_path = ROOT_DIR / "data" / "mailarchive.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
             return f"sqlite:///{db_path}"
@@ -97,4 +97,12 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    from app.infrastructure.system_overrides import apply_overrides
+
+    return apply_overrides(Settings())
+
+
+def reload_settings() -> Settings:
+    """Clear cache and reload env + file overrides (storage / Graph hot path)."""
+    get_settings.cache_clear()
+    return get_settings()

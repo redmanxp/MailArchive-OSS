@@ -80,6 +80,7 @@ Ship a **v0.9 / beta** tag first if you need a public repo sooner; reserve `v1.0
 | Tagged release + GHCR or Docker Hub image | **SHOULD** | `ghcr.io/.../mailarchive:1.0.0` |
 | Architecture doc (short) | **SHOULD** | Providers, storage layout, multi-tenant |
 | Support / donations link | Done | https://ko-fi.com/mailarchive · FUNDING.yml (`ko_fi: mailarchive`) |
+| GitHub Social preview (`docs/images/cover.png`) | **When public** | Repo is private now; after making it public: Settings → General → Social preview → Upload |
 
 ---
 
@@ -110,9 +111,10 @@ Ship a **v0.9 / beta** tag first if you need a public repo sooner; reserve `v1.0
 ## Suggested release sequence
 
 1. **v0.9.0-beta** — public repo, clear “beta”, Docker works, manuals + SECURITY.
-2. Close **BLOCKER** rows above.
-3. **v1.0.0** — CHANGELOG, CI green, backup/upgrade docs, password policy, honest feature list (FTS if advertised).
-4. Announce with screenshots + short demo gif optional.
+2. After making the repo **public**: upload Social preview (`docs/images/cover.png`) under Settings → General → Social preview (limited value while private).
+3. Close remaining **BLOCKER** rows above.
+4. **v1.0.0** — CHANGELOG, CI green, backup/upgrade docs, password policy, honest feature list.
+5. Announce with screenshots + short demo gif optional.
 
 ---
 

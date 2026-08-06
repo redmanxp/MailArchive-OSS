@@ -6,7 +6,7 @@
 
 ## Reportar vulnerabilidades
 
-Abrí un [GitHub Security Advisory](https://github.com/redmanxp/MailArchive-OSS/security/advisories/new) en el repositorio (privado) o contactá al maintainer del proyecto. No publiques exploits en issues abiertos hasta que haya un fix.
+Abrí un [GitHub Security Advisory](https://github.com/redmanxp/MailArchive-OSS/security/advisories/new) en el repositorio o contactá al maintainer del proyecto. No publiques exploits en issues abiertos hasta que haya un fix.
 
 ## Qué NO versionar
 

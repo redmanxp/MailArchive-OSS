@@ -59,7 +59,8 @@ Remaining before a confident public `v1.0.0`: Social preview after the repo is p
 | Full-text search (FTS5 / MySQL FULLTEXT) | Done | Fallback ILIKE |
 | Dashboard metrics + health probes | Done | |
 | Branding (name, color, logos) | Done | Defaults + upload |
-| Gmail / S3 / retention UI | Roadmap | Do not claim shipped |
+| S3-compatible object storage | Done | MinIO / AWS S3 / R2 / Wasabi via settings |
+| Gmail OAuth / retention UI | Roadmap | IMAP+App Password works; dedicated OAuth later |
 
 ---
 
@@ -108,8 +109,7 @@ Remaining before a confident public `v1.0.0`: Social preview after the repo is p
 
 ## Out of scope for v1.0 (explicit)
 
-- Gmail OAuth provider  
-- S3 / multi-backend storage  
+- Gmail OAuth provider (IMAP + App Password is supported)  
 - LDAP / Active Directory SSO  
 - Multi-tenant SaaS admin UI  
 - Legal hold / retention policy engine  

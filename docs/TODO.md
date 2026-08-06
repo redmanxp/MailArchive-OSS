@@ -43,10 +43,10 @@ Lenguaje: **scheduled incremental archive** — nunca “email sync” (evita ex
 | O6 | CoC + issue/PR templates | P1 | **Hecho** |
 | O7 | GHCR / Docker Hub image | P1 | **Hecho** (GHCR + `docker-compose.prod.yml`; Docker Hub diferido hasta repo público) |
 | O8 | Ko-fi real | P2 | **Hecho** (https://ko-fi.com/mailarchive · botón F6V224JUWU · `.github/FUNDING.yml`) |
-| O9 | GitHub Social preview (cover) | P2 | **Pendiente al hacer el repo público** — Settings → General → Social preview → subir `docs/images/cover.png` |
+| O9 | GitHub Social preview (cover) | P2 | **Al hacer público** — Settings → General → Social preview → subir `docs/images/cover.png` |
 | O10 | Dependabot | P2 | **Hecho** (`.github/dependabot.yml`) |
 | O11 | Screenshots README: redactar emails **y hostnames** (SMTP/IMAP) a `*.example.com` | P1 | **Hecho** (script `capture-screenshots.mjs`) |
-| O12 | Landing Pages (`landing/` + workflow `pages.yml`) | P2 | **Hecho en código**; deploy **bloqueado** — GH Pages en plan free exige repo **público** (o GitHub Pro). Dejar para cuando se haga público → Settings → Pages → Source: GitHub Actions → URL `https://redmanxp.github.io/MailArchive-OSS/` |
+| O12 | Landing Pages (`landing/` + workflow `pages.yml`) | P2 | **Código listo** — tras repo público: Settings → Pages → Source: GitHub Actions → `https://redmanxp.github.io/MailArchive-OSS/` |
 
 ---
 

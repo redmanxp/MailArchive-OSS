@@ -40,6 +40,7 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 | O7 | GHCR / Docker Hub image | P1 | **Hecho** (workflow `publish-ghcr.yml` + `docker-compose.ghcr.yml`) |
 | O8 | Ko-fi real | P2 | **Hecho** (https://ko-fi.com/mailarchive · botón F6V224JUWU · `.github/FUNDING.yml`) |
 | O9 | GitHub Social preview (cover) | P2 | **Pendiente al hacer el repo público** — Settings → General → Social preview → subir `docs/images/cover.png` |
+| O10 | Dependabot | P2 | **Hecho** (`.github/dependabot.yml`) |
 
 ---
 
@@ -50,7 +51,18 @@ Leyenda: **P0** bloquea v1.0 · **P1** importante · **P2** luego
 | P1a | Full-text search nativo (FTS5/FULLTEXT) | P1 | **Hecho** (migración 0003; fallback ILIKE) |
 | P2 | Worker durable de jobs | P1 | **Hecho** (pending sobrevive reinicio; solo `running` → failed; dispatcher) |
 | P3 | Dashboard métricas | P1 | Hecho |
-| P4–P7 | Gmail, S3, Postgres, retención | P2 | Roadmap |
+| P4 | Gmail OAuth provider | P2 | Roadmap |
+| P5 | **Object storage S3** (y compatible: MinIO, R2, etc.) además del filesystem | P2 | Roadmap — hoy solo `STORAGE_ROOT` en disco/montura |
+| P6 | Postgres opcional | P2 | Roadmap |
+| P7 | Políticas de retención / legal hold UI | P2 | Roadmap |
+
+---
+
+## Documentación
+
+| # | Tarea | Pri | Estado |
+|---|--------|-----|--------|
+| D1 | **Manual completo** ES + EN con todas las mejoras y funciones actuales (install, DB/storage, branding, FTS, jobs, SMTP, backup, monturas de red, reset Docker, etc.) | P1 | **Pendiente** — alinear `MANUAL_USUARIO.md` / `USER_MANUAL.md` cuando el producto estabilice v1 |
 
 ---
 

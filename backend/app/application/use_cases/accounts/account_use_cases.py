@@ -28,6 +28,8 @@ from app.infrastructure.providers.microsoft_graph import MicrosoftGraphProvider,
 from app.infrastructure.security.fernet_cipher import CredentialCipher
 from app.infrastructure.storage.filesystem_storage import FilesystemMailStorage
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,7 +98,10 @@ class CompleteMicrosoftOAuthUseCase:
         payload = self.state_service.verify(state)
         tenant_id = int(payload["tenant_id"])
         user_id = int(payload["user_id"])
-        tokens = self.oauth.exchange_code(code)
+        try:
+            tokens = self.oauth.exchange_code(code)
+        except httpx.HTTPStatusError as exc:
+            raise ValidationError(str(exc)) from exc
         access = tokens["access_token"]
         refresh = tokens.get("refresh_token")
         expires_in = int(tokens.get("expires_in", 3600))

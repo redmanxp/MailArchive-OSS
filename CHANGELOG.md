@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- SMTP test crashed with Internal Server Error: password decrypt used a dict instead of the Fernet token
+- Microsoft OAuth callback now logs and surfaces token-exchange errors instead of opaque `oauth_failed`
+- Reject Azure **Secret ID** (GUID) when saving Microsoft client secret; hint clarifies to paste **Value**
+- Strip accidental spaces from Microsoft redirect URI on save
+
 ### Added
 
+- Dependabot weekly updates (pip, npm, GitHub Actions)
 - Install wizard: choose SQLite/MySQL and storage folder (restart required when DB engine changes)
 - In-process archive job dispatcher: `pending` jobs survive API restart; only `running` jobs are marked failed
 - Native full-text search: SQLite FTS5 + MySQL FULLTEXT (migration `0003_mail_fts`), with ILIKE fallback

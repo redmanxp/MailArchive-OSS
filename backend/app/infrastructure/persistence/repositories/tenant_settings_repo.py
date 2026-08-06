@@ -7,6 +7,8 @@ PUT updates both relay settings and message copy.
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,8 @@ from app.infrastructure.email.templates import (
 )
 from app.infrastructure.persistence.models import TenantSettingsModel
 from app.infrastructure.security.fernet_cipher import CredentialCipher
+
+logger = logging.getLogger(__name__)
 
 
 class SqlAlchemyTenantSettingsRepository:
@@ -101,9 +105,11 @@ class SqlAlchemyTenantSettingsRepository:
         enc = cfg.pop("password_encrypted", None)
         if enc:
             try:
-                cfg["password"] = self._cipher.decrypt_dict({"p": enc})["p"]
+                # encrypt_dict({"p": password}) stores a Fernet token string
+                cfg["password"] = self._cipher.decrypt_dict(enc)["p"]
             except ValueError:
                 cfg["password"] = ""
+                logger.warning("SMTP password decrypt failed for tenant_id=%s", tenant_id)
         else:
             cfg["password"] = cfg.get("password", "")
         if not cfg.get("enabled", True):

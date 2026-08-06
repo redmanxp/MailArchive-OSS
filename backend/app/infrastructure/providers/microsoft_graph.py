@@ -63,7 +63,14 @@ class MicrosoftOAuthService:
         }
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(f"{self.authority}/oauth2/v2.0/token", data=data)
-            resp.raise_for_status()
+            if resp.is_error:
+                detail = _oauth_error_detail(resp)
+                logger.error("Microsoft token exchange failed: %s", detail)
+                raise httpx.HTTPStatusError(
+                    f"Microsoft token exchange failed: {detail}",
+                    request=resp.request,
+                    response=resp,
+                )
             return resp.json()
 
     def refresh_tokens(self, refresh_token: str) -> dict[str, Any]:
@@ -76,8 +83,25 @@ class MicrosoftOAuthService:
         }
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(f"{self.authority}/oauth2/v2.0/token", data=data)
-            resp.raise_for_status()
+            if resp.is_error:
+                detail = _oauth_error_detail(resp)
+                logger.error("Microsoft token refresh failed: %s", detail)
+                raise httpx.HTTPStatusError(
+                    f"Microsoft token refresh failed: {detail}",
+                    request=resp.request,
+                    response=resp,
+                )
             return resp.json()
+
+
+def _oauth_error_detail(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+        err = body.get("error") or ""
+        desc = body.get("error_description") or body.get("error_codes") or resp.text
+        return f"{resp.status_code} {err}: {desc}".strip()
+    except Exception:
+        return f"{resp.status_code} {resp.text[:300]}"
 
 
 class MicrosoftGraphProvider(MailProvider):

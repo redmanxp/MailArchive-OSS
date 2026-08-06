@@ -463,7 +463,7 @@
       "msTenantId": "Directory (tenant) ID",
       "msRedirect": "Redirect URI",
       "msSecret": "Client secret",
-      "msSecretHint": "Dejar vacío para no cambiar el secret guardado.",
+      "msSecretHint": "Dejar vacío para no cambiar el secret guardado. Pegá el Value de Azure, no el Secret ID (GUID).",
       "msConfigured": "OAuth configurado",
       "msNotConfigured": "Falta client ID o secret",
       "msSave": "Guardar Microsoft 365",

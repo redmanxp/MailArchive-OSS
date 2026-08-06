@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
-from urllib.parse import quote
 
 from app.api.deps.auth import CurrentUserContext, get_current_user, map_domain_error
 from app.application.use_cases.accounts.account_use_cases import (
@@ -44,6 +45,7 @@ from app.schemas.accounts import (
     ProviderMessagePublic,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
@@ -145,9 +147,13 @@ def microsoft_oauth_callback(
             f"{frontend}/app/accounts?linked=1&email={result['email']}&account_id={result['account_id']}"
         )
     except DomainError as exc:
-        return RedirectResponse(f"{frontend}/app/accounts?error={str(exc)}")
-    except Exception:
-        return RedirectResponse(f"{frontend}/app/accounts?error=oauth_failed")
+        logger.warning("Microsoft OAuth domain error: %s", exc)
+        return RedirectResponse(f"{frontend}/app/accounts?error={quote(str(exc), safe='')}")
+    except Exception as exc:
+        logger.exception("Microsoft OAuth callback failed")
+        # Surface a short safe hint (no secrets); full detail stays in API logs
+        hint = quote(str(exc)[:180], safe="")
+        return RedirectResponse(f"{frontend}/app/accounts?error={hint or 'oauth_failed'}")
 
 
 @router.post("/{account_id}/test", response_model=ConnectionTestResponse)

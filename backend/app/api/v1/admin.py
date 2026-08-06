@@ -292,7 +292,8 @@ def update_microsoft_settings(
     if "tenant_id" in payload:
         mapped["microsoft_tenant_id"] = payload["tenant_id"]
     if "redirect_uri" in payload:
-        mapped["microsoft_redirect_uri"] = payload["redirect_uri"]
+        # Azure requires exact match; strip accidental spaces from the Settings field
+        mapped["microsoft_redirect_uri"] = (payload["redirect_uri"] or "").strip()
     if "client_secret" in payload:
         mapped["microsoft_client_secret"] = payload["client_secret"]
     system_overrides.update_microsoft_overrides(settings, mapped)

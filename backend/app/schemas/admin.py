@@ -1,6 +1,14 @@
 """Admin API schemas."""
 
-from pydantic import BaseModel, EmailStr, Field
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+_AZURE_SECRET_ID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 class UserAdminPublic(BaseModel):
@@ -160,3 +168,23 @@ class MicrosoftSettingsUpdate(BaseModel):
     tenant_id: str | None = None
     redirect_uri: str | None = None
     client_secret: str | None = None
+
+    @field_validator("client_secret")
+    @classmethod
+    def client_secret_must_be_value_not_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not cleaned:
+            return cleaned
+        # Azure "Secret ID" is a GUID; the usable credential is the longer "Value".
+        if _AZURE_SECRET_ID.fullmatch(cleaned):
+            raise ValueError(
+                "Parece un Secret ID (GUID). En Azure copiá la columna Value del client secret, no el Secret ID."
+            )
+        return cleaned
+
+    @field_validator("redirect_uri")
+    @classmethod
+    def strip_redirect_uri(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value

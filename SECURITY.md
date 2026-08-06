@@ -1,31 +1,31 @@
-# Seguridad — MailArchive
+# Security — MailArchive
 
-## Regla de oro
+## Golden rule
 
-**Nunca subir secretos a GitHub** (ni a ningún remoto).
+**Never commit secrets to GitHub** (or any remote).
 
-## Reportar vulnerabilidades
+## Reporting vulnerabilities
 
-Abrí un [GitHub Security Advisory](https://github.com/redmanxp/MailArchive-OSS/security/advisories/new) en el repositorio o contactá al maintainer del proyecto. No publiques exploits en issues abiertos hasta que haya un fix.
+Open a [GitHub Security Advisory](https://github.com/redmanxp/MailArchive-OSS/security/advisories/new) on this repository, or contact the project maintainer. Do not publish exploits in public issues until a fix is available.
 
-## Qué NO versionar
+## Do not version
 
-- `.env` y variantes (excepto `.env.example`)
+- `.env` and variants (except `.env.example`)
 - Passwords (MySQL, SMTP, IMAP)
-- `MICROSOFT_CLIENT_SECRET` y tokens OAuth
-- Claves (`*.pem`, `*.key`, Fernet keys reales)
-- Contenido de `storage/` (correos, adjuntos, metadata real)
-- Dumps SQL / backups con datos
+- `MICROSOFT_CLIENT_SECRET` and OAuth tokens
+- Keys (`*.pem`, `*.key`, real Fernet keys)
+- Contents of `storage/` (mail, attachments, real metadata)
+- SQL dumps / backups with real data
 
-## Qué SÍ versionar
+## Do version
 
-- `.env.example` con placeholders vacíos o `change-me-...`
-- Documentación de variables requeridas
-- Código y migraciones sin credenciales embebidas
+- `.env.example` with empty placeholders or `change-me-...`
+- Documentation of required variables
+- Code and migrations without embedded credentials
 
-## Si se filtró un secreto
+## If a secret was leaked
 
-1. Rotar el secreto de inmediato (Azure AD, DB, SMTP, etc.).
-2. Revocar tokens afectados.
-3. Si ya se pusheó a GitHub: tratar el commit como comprometido; limpiar historial o rotar y asumir exposición.
-4. Avisar al responsable del proyecto.
+1. Rotate the secret immediately (Azure AD, DB, SMTP, etc.).
+2. Revoke affected tokens.
+3. If it was already pushed to GitHub: treat the commit as compromised; scrub history or rotate and assume exposure.
+4. Notify the project maintainer.

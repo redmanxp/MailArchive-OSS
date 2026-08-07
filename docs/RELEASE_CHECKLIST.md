@@ -9,9 +9,9 @@ Legend: **BLOCKER** must ship · **SHOULD** strongly expected · **NICE** can sl
 
 ## Verdict
 
-Self-hosted pilots are **ready**. Most former blockers (docs, CI, password ≥8, FTS, branding, backup/upgrade, GHCR, Dependabot) are done.
+Self-hosted pilots are **ready**. Public **v1.0.0** is tagged: GHCR (both packages public), Pages landing, Social preview, docs/CI/Dependabot done.
 
-Remaining before a confident public `v1.0.0`: Social preview after the repo is public, and honest “beta vs 1.0” messaging if you want more bake time.
+Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`.
 
 ---
 
@@ -43,7 +43,7 @@ Remaining before a confident public `v1.0.0`: Social preview after the repo is p
 | Documented upgrade path | Done | Same file, “Upgrade notes” |
 | Durable-ish job worker | Done | `pending` survives restart; orphan `running` → failed; dispatcher |
 | Health endpoint | Done | `/health` |
-| GHCR image + publish workflow | Done | `publish-ghcr.yml`, `docker-compose.prod.yml` (+ overlay `.ghcr.yml`) |
+| GHCR image + publish workflow | Done | `mailarchive-api` + `mailarchive-frontend` **public**; `publish-ghcr.yml`, `docker-compose.prod.yml` |
 | Postgres optional | **NICE** | Roadmap v1.1 |
 
 ---
@@ -73,7 +73,7 @@ Remaining before a confident public `v1.0.0`: Social preview after the repo is p
 | Issue / PR templates | Done | |
 | GitHub Actions CI | Done | Ruff, mypy scoped, pytest, tsc, ESLint, compose build |
 | Support / donations | Done | Ko-fi `mailarchive` + FUNDING.yml |
-| GitHub Social preview (`docs/images/cover.png`) | **When public** | Settings → General → Social preview |
+| GitHub Social preview (`docs/images/cover.png`) | Done | Uploaded in repo Settings |
 
 ---
 
@@ -100,9 +100,9 @@ Remaining before a confident public `v1.0.0`: Social preview after the repo is p
 
 ## Suggested release sequence
 
-1. Keep CI green on `main`.
-2. After making the repo **public**: upload Social preview (`docs/images/cover.png`).
-3. Tag **v1.0.0** (or **v0.9.0-beta** if you want more external bake time) + publish GHCR.
+1. Keep CI green on `main`; triage Dependabot.
+2. ~~Social preview~~ Done.
+3. ~~Tag v1.0.0 + GHCR~~ Done (`v1.0.0` / image tags `1.0.0`).
 4. Announce with screenshots; optional short demo gif.
 
 ---

@@ -139,16 +139,13 @@ cp .env.example .env
 export GHCR_OWNER=redmanxp
 export MAILARCHIVE_TAG=1.0.0   # or latest
 
-# If packages are still private:
-#   echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
-
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 # UI:  http://localhost:8080
 # API: http://localhost:18100/health
 ```
 
-Or pull the images directly:
+Or pull the images directly (public packages — no `docker login` required):
 
 ```bash
 docker pull ghcr.io/redmanxp/mailarchive-api:1.0.0
@@ -166,8 +163,6 @@ Optional MySQL: set `DB_ENGINE=mysql` in `.env`, then
 `docker compose -f docker-compose.prod.yml --profile mysql up -d`.
 
 Images are published on **version tags** (`v1.0.0`, …) and via **Actions → Publish GHCR → Run workflow**. Tags: `latest`, `1`, `1.0`, `1.0.0`.
-
-> Make both packages **public** under **GitHub → Packages → package settings → Change visibility** so anonymous `docker pull` works.
 
 ### Option B — Build from source
 

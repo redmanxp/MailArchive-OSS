@@ -7,7 +7,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
 #   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 #
-# Private packages: echo $GHCR_TOKEN | docker login ghcr.io -u USER --password-stdin
+# Official packages are public. Private forks: docker login ghcr.io …
 
 services:
   api:

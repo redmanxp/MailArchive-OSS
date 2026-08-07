@@ -8,7 +8,7 @@
 #   docker compose -f docker-compose.prod.yml up -d
 #   UI: http://localhost:8080
 #
-# Private packages (repo not public yet):
+# Packages are public (anonymous pull). Forks/private mirrors may still need:
 #   echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 #
 # MySQL: set DB_ENGINE=mysql in .env, then:

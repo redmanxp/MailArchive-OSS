@@ -384,6 +384,7 @@ def update_account_schedule(
             folder_path=body.folder_path,
             limit_per_run=body.limit_per_run,
             only_with_attachments=body.only_with_attachments,
+            historical_backfill=body.historical_backfill,
         )
     except DomainError as exc:
         raise map_domain_error(exc) from exc

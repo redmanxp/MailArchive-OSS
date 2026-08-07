@@ -1006,7 +1006,13 @@ class ArchiveSingleMessageUseCase:
         if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
             raise AuthorizationError("No puede archivar con esta cuenta")
 
-        existing = self.archived_repo.get_by_provider_message_id(tenant_id, account_id, message_id)
+        existing = self._find_existing_archived(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            provider=account.provider,
+            message_id=message_id,
+            folder=folder_id or folder_path,
+        )
         if existing is not None:
             return self._handle_already_archived(
                 account=account,
@@ -1031,11 +1037,20 @@ class ArchiveSingleMessageUseCase:
         provider.connect()
         try:
             raw = provider.download_message(message_id, folder=folder_id)
-            # Re-check after download (scheduled job may have archived meanwhile)
-            existing = self.archived_repo.get_by_provider_message_id(
-                tenant_id, account_id, raw.provider_message_id or message_id
+            content_sha = hashlib.sha256(raw.eml_bytes).hexdigest()
+            # Re-check after download (scheduled job may have archived meanwhile;
+            # IMAP also matches legacy plain UID vs folder\x1fuid and content hash).
+            existing = self._find_existing_archived(
+                tenant_id=tenant_id,
+                account_id=account_id,
+                provider=account.provider,
+                message_id=message_id,
+                folder=folder_id or raw.folder or folder_path,
+                provider_message_id=raw.provider_message_id,
+                content_sha256=content_sha,
             )
             if existing is not None:
+                self._maybe_normalize_provider_id(existing, raw.provider_message_id or message_id)
                 deleted = bool(existing.deleted_from_provider)
                 if delete_after_archive and not deleted:
                     provider.delete_message(message_id, folder=folder_id)
@@ -1111,8 +1126,14 @@ class ArchiveSingleMessageUseCase:
                     message_id,
                 )
                 self.archived_repo._db.rollback()
-                raced = self.archived_repo.get_by_provider_message_id(
-                    tenant_id, account_id, raw.provider_message_id or message_id
+                raced = self._find_existing_archived(
+                    tenant_id=tenant_id,
+                    account_id=account_id,
+                    provider=account.provider,
+                    message_id=message_id,
+                    folder=folder_id or raw.folder or folder_path,
+                    provider_message_id=raw.provider_message_id,
+                    content_sha256=stored.content_sha256,
                 )
                 if raced is None:
                     raise
@@ -1169,6 +1190,60 @@ class ArchiveSingleMessageUseCase:
         finally:
             provider.disconnect()
 
+    def _find_existing_archived(
+        self,
+        *,
+        tenant_id: int,
+        account_id: int,
+        provider: str,
+        message_id: str,
+        folder: str | None = None,
+        provider_message_id: str | None = None,
+        content_sha256: str | None = None,
+    ) -> Any:
+        """Match archived row by provider id (IMAP aliases) and optional content hash."""
+        if provider == MailProviderType.IMAP.value:
+            candidates: list[str] = []
+            candidates.extend(ImapProvider.message_id_aliases(message_id, folder))
+            if provider_message_id:
+                candidates.extend(ImapProvider.message_id_aliases(provider_message_id, folder))
+            row = self.archived_repo.find_by_provider_message_ids(
+                tenant_id, account_id, candidates
+            )
+            if row is not None:
+                return row
+        else:
+            for mid in (provider_message_id, message_id):
+                if not mid:
+                    continue
+                row = self.archived_repo.get_by_provider_message_id(tenant_id, account_id, mid)
+                if row is not None:
+                    return row
+        if content_sha256:
+            return self.archived_repo.get_by_content_sha256(tenant_id, account_id, content_sha256)
+        return None
+
+    def _maybe_normalize_provider_id(self, existing: Any, new_id: str) -> None:
+        """Upgrade legacy plain IMAP UID to folder\\x1fuid when safe."""
+        if not new_id or existing.provider_message_id == new_id:
+            return
+        # Only upgrade toward composite ids (never replace composite with bare UID).
+        if ImapProvider._ID_SEP not in new_id:
+            return
+        clash = self.archived_repo.get_by_provider_message_id(
+            existing.tenant_id, existing.account_id, new_id
+        )
+        if clash is not None and clash.id != existing.id:
+            return
+        logger.info(
+            "Normalize provider_message_id mail=%s %r -> %r",
+            existing.id,
+            existing.provider_message_id,
+            new_id,
+        )
+        existing.provider_message_id = new_id
+        self.archived_repo._db.flush()
+
     def _handle_already_archived(
         self,
         *,
@@ -1181,6 +1256,8 @@ class ArchiveSingleMessageUseCase:
         folder_id: str | None,
         delete_after_archive: bool,
     ) -> dict:
+        if account.provider == MailProviderType.IMAP.value:
+            self._maybe_normalize_provider_id(existing, message_id)
         deleted = bool(existing.deleted_from_provider)
         if delete_after_archive and not deleted:
             def _persist(tokens: dict[str, Any]) -> None:

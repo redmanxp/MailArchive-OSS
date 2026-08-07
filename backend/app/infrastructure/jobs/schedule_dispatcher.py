@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import UTC, datetime
+from typing import Any
 
 from app.domain.enums.providers import AccountStatus
 
@@ -55,7 +56,7 @@ def _loop(poll_seconds: float) -> None:
         _stop.wait(poll_seconds)
 
 
-def enqueue_account_schedule_now(db, tenant_id: int, account_id: int) -> int:
+def enqueue_account_schedule_now(db: Any, tenant_id: int, account_id: int) -> int:
     """Enqueue one scheduled incremental job immediately. Returns job id."""
     from app.domain.exceptions import NotFoundError, ValidationError
     from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
@@ -88,16 +89,40 @@ def enqueue_account_schedule_now(db, tenant_id: int, account_id: int) -> int:
     return job_id
 
 
-def _enqueue_one(schedules, jobs, account, policy) -> int:
+def _enqueue_one(schedules: Any, jobs: Any, account: Any, policy: Any) -> int:
     criteria: dict = {
         "source": "scheduled_incremental",
         "folder_id": policy.folder_id,
         "folder_path": policy.folder_path,
         "only_with_attachments": bool(policy.only_with_attachments),
         "limit": int(policy.limit_per_run or 500),
+        "historical_backfill": bool(getattr(policy, "historical_backfill", False)),
     }
     if policy.watermark_at is not None:
         criteria["date_from"] = policy.watermark_at.isoformat()
+
+    if criteria["historical_backfill"]:
+        backfill_before = getattr(policy, "backfill_watermark_at", None)
+        if backfill_before is None:
+            # Bootstrap: oldest already archived, else forward watermark, else skip until first run.
+            try:
+                from app.infrastructure.persistence.repositories.mail_repos import (
+                    SqlAlchemyArchivedMailRepository,
+                )
+
+                archived = SqlAlchemyArchivedMailRepository(schedules._db)
+                backfill_before = archived.min_received_at(policy.tenant_id, policy.account_id)
+            except Exception:
+                logger.exception("Could not resolve backfill bootstrap for account=%s", policy.account_id)
+                backfill_before = None
+            if backfill_before is None:
+                backfill_before = policy.watermark_at
+        if backfill_before is not None:
+            criteria["backfill_before"] = (
+                backfill_before.isoformat()
+                if hasattr(backfill_before, "isoformat")
+                else str(backfill_before)
+            )
 
     job = jobs.create(
         tenant_id=policy.tenant_id,
@@ -118,7 +143,7 @@ def _enqueue_one(schedules, jobs, account, policy) -> int:
     return int(job.id)
 
 
-def _enqueue_due(db) -> int:
+def _enqueue_due(db: Any) -> int:
     from datetime import timedelta
 
     from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository

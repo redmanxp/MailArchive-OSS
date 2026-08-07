@@ -98,6 +98,10 @@ desktop.ini
 uploads/
 tmp/
 temp/
+*.db
+*-journal
+*-wal
+*-shm
 *.eml
 !docs/**/*.eml
 

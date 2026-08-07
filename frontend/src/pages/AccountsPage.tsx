@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
@@ -98,6 +99,7 @@ export default function AccountsPage() {
   const [schedInterval, setSchedInterval] = useState(1440);
   const [schedLimit, setSchedLimit] = useState(500);
   const [schedAttachments, setSchedAttachments] = useState(false);
+  const [schedHistorical, setSchedHistorical] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [linkOpen, setLinkOpen] = useState(false);
@@ -449,6 +451,7 @@ export default function AccountsPage() {
       setSchedInterval(s.interval_minutes || 1440);
       setSchedLimit(s.limit_per_run || 500);
       setSchedAttachments(Boolean(s.only_with_attachments));
+      setSchedHistorical(Boolean(s.historical_backfill));
     } catch (err: unknown) {
       setError(
         String(
@@ -472,8 +475,9 @@ export default function AccountsPage() {
         interval_minutes: schedInterval,
         limit_per_run: schedLimit,
         only_with_attachments: schedAttachments,
-        folder_id: schedule?.folder_id,
-        folder_path: schedule?.folder_path,
+        historical_backfill: schedHistorical,
+        folder_id: null,
+        folder_path: null,
       });
       setSchedule(s);
       setInfoSeverity("success");
@@ -503,8 +507,9 @@ export default function AccountsPage() {
         interval_minutes: schedInterval,
         limit_per_run: schedLimit,
         only_with_attachments: schedAttachments,
-        folder_id: schedule?.folder_id,
-        folder_path: schedule?.folder_path,
+        historical_backfill: schedHistorical,
+        folder_id: null,
+        folder_path: null,
       });
       const s = await runAccountScheduleNow(scheduleTarget.id);
       setSchedule(s);
@@ -955,6 +960,19 @@ export default function AccountsPage() {
               }
               label={t("accounts", "scheduleAttachments")}
             />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={schedHistorical}
+                  onChange={(e) => setSchedHistorical(e.target.checked)}
+                  disabled={loading}
+                />
+              }
+              label={t("accounts", "scheduleHistorical")}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5, display: "block" }}>
+              {t("accounts", "scheduleHistoricalHint")}
+            </Typography>
             {schedule && (
               <Stack spacing={0.5}>
                 <Typography variant="caption" color="text.secondary">
@@ -973,6 +991,14 @@ export default function AccountsPage() {
                   {t("accounts", "scheduleWatermark")}:{" "}
                   {schedule.watermark_at ? formatDateTime(schedule.watermark_at) : t("common", "emptyDash")}
                 </Typography>
+                {schedHistorical && (
+                  <Typography variant="caption" color="text.secondary">
+                    {t("accounts", "scheduleBackfill")}:{" "}
+                    {schedule.backfill_watermark_at
+                      ? formatDateTime(schedule.backfill_watermark_at)
+                      : t("common", "emptyDash")}
+                  </Typography>
+                )}
               </Stack>
             )}
           </Stack>

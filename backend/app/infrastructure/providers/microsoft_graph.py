@@ -231,8 +231,9 @@ class MicrosoftGraphProvider(MailProvider):
     def list_messages(self, query: MessageQuery) -> list[MessageSummary]:
         client = self._require()
         folder = query.folder_ids[0] if query.folder_ids else None
+        # No folder = whole mailbox (/me/messages covers all folders in Graph).
         path = f"/me/mailFolders/{folder}/messages" if folder else "/me/messages"
-        select = "id,subject,from,toRecipients,receivedDateTime,sentDateTime,hasAttachments,bodyPreview"
+        select = "id,subject,from,toRecipients,receivedDateTime,sentDateTime,hasAttachments,bodyPreview,parentFolderId"
         # PR_MESSAGE_SIZE (0x0E08): Graph no expone size en $select estándar.
         expand = "singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')"
         params: dict[str, Any] = {
@@ -260,7 +261,9 @@ class MicrosoftGraphProvider(MailProvider):
                     params={"$select": select, "$expand": expand},
                 )
                 if r.status_code == 200:
-                    results.append(self._to_summary(r.json(), folder or "Inbox"))
+                    data = r.json()
+                    label = folder or data.get("parentFolderId") or "Mailbox"
+                    results.append(self._to_summary(data, label))
             return results
 
         results: list[MessageSummary] = []
@@ -280,7 +283,8 @@ class MicrosoftGraphProvider(MailProvider):
             resp.raise_for_status()
             data = resp.json()
             for m in data.get("value", []):
-                summary = self._to_summary(m, folder or "Inbox")
+                label = folder or m.get("parentFolderId") or "Mailbox"
+                summary = self._to_summary(m, label)
                 if query.min_size_bytes is not None and summary.size_bytes < query.min_size_bytes:
                     continue
                 results.append(summary)

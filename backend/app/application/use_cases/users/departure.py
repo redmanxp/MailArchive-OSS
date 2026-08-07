@@ -182,6 +182,7 @@ class EmployeeDepartureUseCase:
                         folder_path=row.folder_path,
                         limit_per_run=row.limit_per_run,
                         only_with_attachments=bool(row.only_with_attachments),
+                        historical_backfill=bool(getattr(row, "historical_backfill", False)),
                     )
                     schedules_disabled += 1
 

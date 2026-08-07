@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums.providers import AccountStatus, MailProviderType
@@ -333,6 +333,44 @@ class SqlAlchemyArchivedMailRepository:
                 ArchivedMailModel.tenant_id == tenant_id,
                 ArchivedMailModel.account_id == account_id,
                 ArchivedMailModel.provider_message_id == provider_message_id,
+            )
+        )
+
+    def find_by_provider_message_ids(
+        self, tenant_id: int, account_id: int, provider_message_ids: list[str]
+    ) -> ArchivedMailModel | None:
+        """Match any of the candidate provider ids (IMAP plain ↔ composite aliases)."""
+        ids = list(dict.fromkeys(mid for mid in provider_message_ids if mid))
+        if not ids:
+            return None
+        return self._db.scalar(
+            select(ArchivedMailModel).where(
+                ArchivedMailModel.tenant_id == tenant_id,
+                ArchivedMailModel.account_id == account_id,
+                ArchivedMailModel.provider_message_id.in_(ids),
+            )
+        )
+
+    def get_by_content_sha256(
+        self, tenant_id: int, account_id: int, content_sha256: str
+    ) -> ArchivedMailModel | None:
+        if not content_sha256:
+            return None
+        return self._db.scalar(
+            select(ArchivedMailModel).where(
+                ArchivedMailModel.tenant_id == tenant_id,
+                ArchivedMailModel.account_id == account_id,
+                ArchivedMailModel.content_sha256 == content_sha256,
+            )
+        )
+
+    def min_received_at(self, tenant_id: int, account_id: int) -> datetime | None:
+        """Oldest received_at among archived mails for an account (backfill bootstrap)."""
+        return self._db.scalar(
+            select(func.min(ArchivedMailModel.received_at)).where(
+                ArchivedMailModel.tenant_id == tenant_id,
+                ArchivedMailModel.account_id == account_id,
+                ArchivedMailModel.received_at.is_not(None),
             )
         )
 

@@ -22,6 +22,7 @@ from app.infrastructure.persistence.repositories.mail_repos import (
 )
 from app.infrastructure.persistence.repositories.sqlalchemy_repos import SqlAlchemyAuditLogRepository
 from app.infrastructure.providers.factory import MailProviderFactory
+from app.infrastructure.providers.imap_provider import ImapProvider
 from app.infrastructure.security.fernet_cipher import CredentialCipher
 from app.infrastructure.storage.factory import build_mail_storage
 
@@ -308,6 +309,35 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         provider.connect()
         try:
             messages = provider.list_messages(_build_query(criteria, limit=limit))
+            seen_ids = {m.id for m in messages}
+            # Historical backfill: fill remaining quota with older-than-cursor mail.
+            if bool(criteria.get("historical_backfill")) and len(messages) < limit:
+                remaining = limit - len(messages)
+                backfill_before = _parse_dt(criteria.get("backfill_before"))
+                if backfill_before is not None:
+                    folder_id_bf = criteria.get("folder_id") or None
+                    older_q = MessageQuery(
+                        folder_ids=[folder_id_bf] if folder_id_bf else [],
+                        older_than=backfill_before,
+                        min_size_bytes=(
+                            int(criteria["min_size_bytes"]) if criteria.get("min_size_bytes") else None
+                        ),
+                        only_with_attachments=bool(criteria.get("only_with_attachments")),
+                        limit=remaining,
+                    )
+                    for msg in provider.list_messages(older_q):
+                        if msg.id in seen_ids:
+                            continue
+                        messages.append(msg)
+                        seen_ids.add(msg.id)
+                        if len(messages) >= limit:
+                            break
+                    logger.info(
+                        "Job %s historical backfill before=%s fetched_total=%s",
+                        job_id,
+                        backfill_before.isoformat(),
+                        len(messages),
+                    )
         finally:
             provider.disconnect()
 
@@ -323,6 +353,8 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         processed = archived = skipped = failed = 0
         archived_bytes = 0
         max_received: datetime | None = None
+        min_received: datetime | None = None
+        min_backfill_received: datetime | None = None
         skipped_samples: list[dict[str, Any]] = []
         failed_samples: list[dict[str, Any]] = []
         archived_samples: list[dict[str, Any]] = []
@@ -371,7 +403,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                     _persist_result(note="cancelled")
 
                 write_with_retry(db, _cancel_progress)
-                _notify_schedule(db, tenant_id, job.account_id, job_id, "cancelled", None, None)
+                _notify_schedule(db, tenant_id, job.account_id, job_id, "cancelled", None, None, None)
                 commit_with_retry(db)
                 _clear_cancel(job_id)
                 return
@@ -383,8 +415,43 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                     rt = rt.replace(tzinfo=UTC)
                 if max_received is None or rt > max_received:
                     max_received = rt
-            existing = archived_repo.get_by_provider_message_id(tenant_id, account.id, msg.id)
+                if min_received is None or rt < min_received:
+                    min_received = rt
+                bf_before = _parse_dt(criteria.get("backfill_before"))
+                if bool(criteria.get("historical_backfill")) and (
+                    bf_before is None or rt < bf_before
+                ):
+                    if min_backfill_received is None or rt < min_backfill_received:
+                        min_backfill_received = rt
+            existing = archived_repo.find_by_provider_message_ids(
+                tenant_id,
+                account.id,
+                (
+                    ImapProvider.message_id_aliases(msg.id, msg.folder)
+                    if account.provider == "imap"
+                    else [msg.id]
+                ),
+            )
             if existing:
+                # Upgrade legacy plain IMAP UID → composite id when we skip.
+                if (
+                    account.provider == "imap"
+                    and msg.id
+                    and ImapProvider._ID_SEP in msg.id
+                    and existing.provider_message_id != msg.id
+                ):
+                    clash = archived_repo.get_by_provider_message_id(
+                        tenant_id, account.id, msg.id
+                    )
+                    if clash is None or clash.id == existing.id:
+                        logger.info(
+                            "Normalize provider_message_id mail=%s %r -> %r",
+                            existing.id,
+                            existing.provider_message_id,
+                            msg.id,
+                        )
+                        existing.provider_message_id = msg.id
+                        archived_repo._db.flush()
                 skipped += 1
                 if len(skipped_samples) < 15:
                     skipped_samples.append(
@@ -402,8 +469,9 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                         role=role,
                         account_id=account.id,
                         message_id=msg.id,
-                        folder_id=folder_id,
-                        folder_path=folder_path,
+                        # Prefer per-message folder (all-folders scan); criteria folder is fallback.
+                        folder_id=msg.folder or folder_id,
+                        folder_path=msg.folder or folder_path,
                         delete_after_archive=job.delete_after_archive,
                     )
                     archived += 1
@@ -457,7 +525,22 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
 
         write_with_retry(db, _complete)
         watermark = max_received or datetime.now(UTC)
-        _notify_schedule(db, tenant_id, job.account_id, job_id, "ok", None, watermark)
+        backfill_wm: datetime | None = None
+        if bool(criteria.get("historical_backfill")):
+            if min_backfill_received is not None:
+                backfill_wm = min_backfill_received
+            elif not criteria.get("backfill_before") and min_received is not None:
+                backfill_wm = min_received
+        _notify_schedule(
+            db,
+            tenant_id,
+            job.account_id,
+            job_id,
+            "ok",
+            None,
+            watermark,
+            backfill_wm,
+        )
         commit_with_retry(db)
         logger.info(
             "Archive job %s done archived=%s skipped=%s failed=%s",
@@ -468,6 +551,8 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         )
     except Exception as exc:
         logger.exception("Archive job %s crashed", job_id)
+        err_msg = str(exc)[:1000]
+        crash_msg = str(exc)[:500]
         try:
             db.rollback()
 
@@ -476,7 +561,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                     tenant_id,
                     job_id,
                     status=ArchiveJobStatus.FAILED.value,
-                    error_message=str(exc)[:1000],
+                    error_message=err_msg,
                     finished=True,
                 )
                 try:
@@ -492,7 +577,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                             "skipped_samples": skipped_samples[:15],
                             "archived_samples": archived_samples[:15],
                             "failed_samples": failed_samples[:15],
-                            "crash": str(exc)[:500],
+                            "crash": crash_msg,
                         },
                     )
                 except NameError:
@@ -503,7 +588,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                 job_row = SqlAlchemyArchiveJobRepository(db).get(tenant_id, job_id)
                 if job_row:
                     _notify_schedule(
-                        db, tenant_id, job_row.account_id, job_id, "failed", str(exc)[:1000], None
+                        db, tenant_id, job_row.account_id, job_id, "failed", err_msg, None, None
                     )
                     commit_with_retry(db)
             except Exception:
@@ -523,6 +608,7 @@ def _notify_schedule(
     status: str,
     error: str | None,
     watermark_at: datetime | None,
+    backfill_watermark_at: datetime | None = None,
 ) -> None:
     try:
         from app.infrastructure.persistence.repositories.schedule_repo import (
@@ -536,6 +622,7 @@ def _notify_schedule(
             status=status,
             error=error,
             watermark_at=watermark_at,
+            backfill_watermark_at=backfill_watermark_at,
         )
     except Exception:
         logger.exception("Schedule notify failed account=%s job=%s", account_id, job_id)

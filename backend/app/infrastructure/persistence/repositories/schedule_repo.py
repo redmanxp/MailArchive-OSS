@@ -34,6 +34,7 @@ class SqlAlchemyArchiveScheduleRepository:
             interval_minutes=1440,
             limit_per_run=500,
             only_with_attachments=False,
+            historical_backfill=False,
         )
         self._db.add(row)
         self._db.flush()
@@ -50,6 +51,7 @@ class SqlAlchemyArchiveScheduleRepository:
         folder_path: str | None,
         limit_per_run: int,
         only_with_attachments: bool,
+        historical_backfill: bool = False,
     ) -> ArchiveScheduleModel:
         row = self.get_or_create(tenant_id, account_id)
         was_enabled = bool(row.enabled)
@@ -59,6 +61,9 @@ class SqlAlchemyArchiveScheduleRepository:
         row.folder_path = folder_path or None
         row.limit_per_run = max(1, min(int(limit_per_run), 2000))
         row.only_with_attachments = bool(only_with_attachments)
+        row.historical_backfill = bool(historical_backfill)
+        if not row.historical_backfill:
+            row.backfill_watermark_at = None
         now = datetime.now(UTC)
         if row.enabled:
             if not was_enabled or row.next_run_at is None:
@@ -113,6 +118,7 @@ class SqlAlchemyArchiveScheduleRepository:
         status: str,
         error: str | None = None,
         watermark_at: datetime | None = None,
+        backfill_watermark_at: datetime | None = None,
     ) -> None:
         row = self.get_by_account(tenant_id, account_id)
         if not row:
@@ -125,6 +131,9 @@ class SqlAlchemyArchiveScheduleRepository:
         if watermark_at is not None:
             if row.watermark_at is None or watermark_at > row.watermark_at:
                 row.watermark_at = watermark_at
+        if backfill_watermark_at is not None and row.historical_backfill:
+            if row.backfill_watermark_at is None or backfill_watermark_at < row.backfill_watermark_at:
+                row.backfill_watermark_at = backfill_watermark_at
         self._db.flush()
 
     def to_public(self, row: ArchiveScheduleModel) -> dict[str, Any]:
@@ -136,7 +145,11 @@ class SqlAlchemyArchiveScheduleRepository:
             "folder_path": row.folder_path,
             "limit_per_run": row.limit_per_run,
             "only_with_attachments": bool(row.only_with_attachments),
+            "historical_backfill": bool(row.historical_backfill),
             "watermark_at": row.watermark_at.isoformat() if row.watermark_at else None,
+            "backfill_watermark_at": (
+                row.backfill_watermark_at.isoformat() if row.backfill_watermark_at else None
+            ),
             "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             "next_run_at": row.next_run_at.isoformat() if row.next_run_at else None,
             "last_job_id": row.last_job_id,

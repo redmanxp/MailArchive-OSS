@@ -70,7 +70,9 @@ class ArchiveSchedulePublic(BaseModel):
     folder_path: str | None = None
     limit_per_run: int = 500
     only_with_attachments: bool = False
+    historical_backfill: bool = False
     watermark_at: str | None = None
+    backfill_watermark_at: str | None = None
     last_run_at: str | None = None
     next_run_at: str | None = None
     last_job_id: int | None = None
@@ -86,3 +88,4 @@ class ArchiveScheduleUpdate(BaseModel):
     folder_path: str | None = None
     limit_per_run: int = Field(default=500, ge=1, le=2000)
     only_with_attachments: bool = False
+    historical_backfill: bool = False

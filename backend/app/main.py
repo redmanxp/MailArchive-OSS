@@ -97,7 +97,7 @@ def _reclaim_orphaned_archive_jobs() -> None:
     """Mark interrupted ``running`` jobs as failed. ``pending`` jobs are left for the dispatcher."""
     from datetime import UTC, datetime
 
-    from sqlalchemy import select, update
+    from sqlalchemy import select
 
     from app.infrastructure.persistence.database import SessionLocal
     from app.infrastructure.persistence.models import ArchiveJobModel, ArchiveScheduleModel

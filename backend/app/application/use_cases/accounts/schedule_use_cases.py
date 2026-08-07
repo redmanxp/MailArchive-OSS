@@ -58,6 +58,7 @@ class UpdateArchiveScheduleUseCase:
         folder_path: str | None = None,
         limit_per_run: int = 500,
         only_with_attachments: bool = False,
+        historical_backfill: bool = False,
     ) -> dict:
         account = self.account_repo.get(tenant_id, account_id)
         if account is None:
@@ -79,6 +80,7 @@ class UpdateArchiveScheduleUseCase:
             folder_path=folder_path,
             limit_per_run=limit_per_run,
             only_with_attachments=only_with_attachments,
+            historical_backfill=historical_backfill,
         )
         self.audit_repo.add(
             tenant_id=tenant_id,
@@ -91,13 +93,15 @@ class UpdateArchiveScheduleUseCase:
                 "interval_minutes": interval_minutes,
                 "folder_id": folder_id,
                 "limit_per_run": limit_per_run,
+                "historical_backfill": historical_backfill,
             },
         )
         logger.info(
-            "Archive schedule account=%s enabled=%s interval=%sm",
+            "Archive schedule account=%s enabled=%s interval=%sm historical=%s",
             account_id,
             enabled,
             interval_minutes,
+            historical_backfill,
         )
         return self.schedule_repo.to_public(row)
 

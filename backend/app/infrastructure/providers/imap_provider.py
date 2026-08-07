@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import email
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parsedate_to_datetime
@@ -101,30 +101,125 @@ class ImapProvider(MailProvider):
         folders.sort(key=lambda f: f.path.lower())
         return folders
 
+    # UIDs are per-folder; encode folder in provider ids when scanning the whole mailbox.
+    _ID_SEP = "\x1f"
+
+    @classmethod
+    def _compose_message_id(cls, folder: str, uid: int | str) -> str:
+        return f"{folder}{cls._ID_SEP}{uid}"
+
+    @classmethod
+    def _parse_message_id(cls, message_id: str, folder: str | None = None) -> tuple[str, int]:
+        if cls._ID_SEP in message_id:
+            folder_part, uid_part = message_id.split(cls._ID_SEP, 1)
+            return folder_part, int(uid_part)
+        return (folder or "INBOX"), int(message_id)
+
+    @classmethod
+    def message_id_aliases(cls, message_id: str, folder: str | None = None) -> list[str]:
+        """Lookup candidates for plain UID ↔ folder\\x1fuid (legacy vs multi-folder ids).
+
+        Pre-composite IMAP only scanned INBOX and stored bare UIDs. Bare UID must only
+        alias to INBOX (UIDs are per-folder — never match Sent UID against INBOX row).
+        """
+        if not message_id:
+            return []
+        ids: list[str] = []
+
+        def _add(value: str) -> None:
+            if value and value not in ids:
+                ids.append(value)
+
+        _add(message_id)
+        if cls._ID_SEP in message_id:
+            folder_part, uid_part = message_id.split(cls._ID_SEP, 1)
+            _add(cls._compose_message_id(folder_part, uid_part))
+            # Legacy bare UID only existed for INBOX scans.
+            if folder_part.upper() == "INBOX":
+                _add(uid_part)
+        else:
+            # Bare UID → only INBOX composite (legacy storage was INBOX-only).
+            _add(cls._compose_message_id("INBOX", message_id))
+        _ = folder  # API compat; bare UIDs never alias across folders
+        return ids
+
     def list_messages(self, query: MessageQuery) -> list[MessageSummary]:
         client = self._require()
-        folder = query.folder_ids[0] if query.folder_ids else "INBOX"
-        client.select_folder(folder, readonly=True)
-        criteria: list = ["ALL"]
-        if query.message_ids:
-            # IMAP UIDs
-            uids = [int(x) for x in query.message_ids]
-            fetched = client.fetch(uids, ["ENVELOPE", "RFC822.SIZE", "BODYSTRUCTURE"])
-        else:
-            if query.older_than:
-                criteria = ["BEFORE", query.older_than.strftime("%d-%b-%Y")]
-            elif query.date_from or query.date_to:
-                criteria = []
-                if query.date_from:
-                    criteria.extend(["SINCE", query.date_from.strftime("%d-%b-%Y")])
-                if query.date_to:
-                    criteria.extend(["BEFORE", query.date_to.strftime("%d-%b-%Y")])
-                if not criteria:
-                    criteria = ["ALL"]
-            uids = client.search(criteria)
-            uids = uids[: query.limit]
-            fetched = client.fetch(uids, ["ENVELOPE", "RFC822.SIZE", "BODYSTRUCTURE"]) if uids else {}
+        # Empty folder_ids = all selectable folders (scheduled archive / full mailbox).
+        folders = list(query.folder_ids) if query.folder_ids else [f.id for f in self.list_folders()]
+        if not folders:
+            folders = ["INBOX"]
 
+        results: list[MessageSummary] = []
+
+        # Targeted fetch by id (may include composite folder\x1fuid ids).
+        if query.message_ids:
+            for mid in query.message_ids[: query.limit]:
+                try:
+                    folder, uid = self._parse_message_id(mid, None)
+                    client.select_folder(folder, readonly=True)
+                    fetched = client.fetch([uid], ["ENVELOPE", "RFC822.SIZE", "BODYSTRUCTURE"])
+                    results.extend(
+                        self._summaries_from_fetch(fetched, folder=folder, query=query)
+                    )
+                except Exception:
+                    logger.exception("IMAP fetch by id failed for %s", mid)
+            return results[: query.limit]
+
+        criteria: list
+        if query.older_than:
+            # IMAP BEFORE is date-only and exclusive of that calendar day. Use the next
+            # day so same-day messages before the watermark are still candidates; then
+            # filter client-side with the full timestamp.
+            ot = query.older_than
+            if ot.tzinfo is None:
+                ot = ot.replace(tzinfo=UTC)
+            else:
+                ot = ot.astimezone(UTC)
+            before_day = ot.date() + timedelta(days=1)
+            criteria = ["BEFORE", before_day.strftime("%d-%b-%Y")]
+        elif query.date_from or query.date_to:
+            criteria = []
+            if query.date_from:
+                criteria.extend(["SINCE", query.date_from.strftime("%d-%b-%Y")])
+            if query.date_to:
+                criteria.extend(["BEFORE", query.date_to.strftime("%d-%b-%Y")])
+            if not criteria:
+                criteria = ["ALL"]
+        else:
+            criteria = ["ALL"]
+
+        for folder in folders:
+            try:
+                client.select_folder(folder, readonly=True)
+            except Exception:
+                logger.warning("IMAP skip non-selectable folder %s", folder)
+                continue
+            try:
+                uids = client.search(criteria)
+            except Exception:
+                logger.exception("IMAP search failed in %s", folder)
+                continue
+            if not uids:
+                continue
+            # Cap per folder, then merge/sort so one busy folder does not starve the rest.
+            uids = uids[-query.limit :] if len(uids) > query.limit else uids
+            fetched = client.fetch(uids, ["ENVELOPE", "RFC822.SIZE", "BODYSTRUCTURE"]) if uids else {}
+            results.extend(self._summaries_from_fetch(fetched, folder=folder, query=query))
+
+        results.sort(
+            key=lambda m: m.received_at or m.sent_at or datetime.min,
+            reverse=True,
+        )
+        return results[: query.limit]
+
+    def _summaries_from_fetch(
+        self,
+        fetched: dict,
+        *,
+        folder: str,
+        query: MessageQuery,
+    ) -> list[MessageSummary]:
         results: list[MessageSummary] = []
         for uid, data in fetched.items():
             env = data.get(b"ENVELOPE")
@@ -135,7 +230,11 @@ class ImapProvider(MailProvider):
             from_addr = ""
             if env and env.from_ and env.from_[0]:
                 mailbox = env.from_[0]
-                from_addr = f"{mailbox.mailbox.decode()}@{mailbox.host.decode()}" if mailbox.mailbox and mailbox.host else ""
+                from_addr = (
+                    f"{mailbox.mailbox.decode()}@{mailbox.host.decode()}"
+                    if mailbox.mailbox and mailbox.host
+                    else ""
+                )
             to_addrs: list[str] = []
             if env and env.to:
                 for t in env.to:
@@ -145,9 +244,15 @@ class ImapProvider(MailProvider):
             if query.only_with_attachments and not has_att:
                 continue
             sent_at = env.date if env and isinstance(env.date, datetime) else None
+            if query.older_than and sent_at is not None:
+                ts = sent_at if sent_at.tzinfo is not None else sent_at.replace(tzinfo=UTC)
+                ot = query.older_than
+                ot = ot if ot.tzinfo is not None else ot.replace(tzinfo=UTC)
+                if ts.astimezone(UTC) >= ot.astimezone(UTC):
+                    continue
             results.append(
                 MessageSummary(
-                    id=str(uid),
+                    id=self._compose_message_id(folder, uid),
                     subject=subject,
                     from_address=from_addr,
                     to_addresses=to_addrs,
@@ -162,12 +267,15 @@ class ImapProvider(MailProvider):
 
     def download_message(self, message_id: str, folder: str | None = None) -> RawMessage:
         client = self._require()
-        target = folder or "INBOX"
+        target, uid = self._parse_message_id(message_id, folder)
         client.select_folder(target, readonly=True)
-        uid = int(message_id)
         data = client.fetch([uid], ["RFC822"])
         raw_bytes = data[uid][b"RFC822"]
-        return self._parse_eml(raw_bytes, provider_message_id=str(uid), folder=target)
+        return self._parse_eml(
+            raw_bytes,
+            provider_message_id=self._compose_message_id(target, uid),
+            folder=target,
+        )
 
     def archive_message(self, message_id: str, options: ArchiveOptions) -> ArchiveResult:
         raw = self.download_message(message_id)
@@ -198,9 +306,8 @@ class ImapProvider(MailProvider):
 
     def delete_message(self, message_id: str, folder: str | None = None) -> None:
         client = self._require()
-        target = folder or "INBOX"
+        target, uid = self._parse_message_id(message_id, folder)
         client.select_folder(target, readonly=False)
-        uid = int(message_id)
         client.delete_messages([uid])
         client.expunge()
 

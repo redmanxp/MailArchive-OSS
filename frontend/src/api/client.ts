@@ -639,7 +639,9 @@ export type ArchiveSchedule = {
   folder_path?: string | null;
   limit_per_run: number;
   only_with_attachments: boolean;
+  historical_backfill?: boolean;
   watermark_at?: string | null;
+  backfill_watermark_at?: string | null;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_job_id?: number | null;
@@ -661,6 +663,7 @@ export async function updateAccountSchedule(
     folder_path?: string | null;
     limit_per_run: number;
     only_with_attachments: boolean;
+    historical_backfill?: boolean;
   }
 ) {
   const { data } = await api.put<ArchiveSchedule>(`/api/v1/accounts/${accountId}/schedule`, payload);

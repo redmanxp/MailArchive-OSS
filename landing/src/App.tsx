@@ -28,10 +28,13 @@ function KofiButton({ className = "" }: { className?: string }) {
       href={KOFI}
       target="_blank"
       rel="noreferrer"
-      className={`inline-flex items-center gap-2 rounded-full bg-[#FF5E5B] px-4 py-2 text-sm font-semibold text-white shadow-lift transition hover:brightness-110 ${className}`}
+      className={`inline-flex items-center gap-2 rounded-full bg-[#FF5E5B] px-4 py-1.5 text-sm font-semibold leading-tight text-white shadow-lift transition hover:brightness-110 ${className}`}
     >
       <span aria-hidden>☕</span>
-      Support on Ko-fi
+      <span className="inline-flex flex-col items-center text-center leading-tight">
+        <span>Support on</span>
+        <span>Ko-fi</span>
+      </span>
     </a>
   );
 }
@@ -62,8 +65,8 @@ export default function App() {
           scrolled ? "border-b border-ink/10 bg-foam/90 backdrop-blur-md" : "bg-transparent"
         }`}
       >
-        <div className="section-pad mx-auto flex max-w-6xl items-center justify-between py-3">
-          <a href="#home" className="flex items-center gap-3">
+        <div className="section-pad mx-auto flex h-14 max-w-6xl items-center justify-between gap-2">
+          <a href="#home" className="flex shrink-0 items-center gap-3">
             <img src={asset("images/logo-icon.png")} alt="" className="h-9 w-9 rounded-lg" />
             <span className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
               MailArchive
@@ -74,9 +77,20 @@ export default function App() {
               <a
                 key={item.id}
                 href={`#${item.id}`}
-                className="rounded-full px-3 py-1.5 text-sm font-medium text-ink/70 transition hover:bg-mist hover:text-ink"
+                className={`rounded-full px-2.5 py-1.5 text-sm font-medium text-ink/70 transition hover:bg-mist hover:text-ink ${
+                  item.id === "microsoft365"
+                    ? "inline-flex flex-col items-center text-center leading-tight"
+                    : "whitespace-nowrap leading-none"
+                }`}
               >
-                {item.label}
+                {item.id === "microsoft365" ? (
+                  <>
+                    <span>Microsoft</span>
+                    <span>365</span>
+                  </>
+                ) : (
+                  item.label
+                )}
               </a>
             ))}
           </nav>
@@ -86,7 +100,7 @@ export default function App() {
               href={REPO}
               target="_blank"
               rel="noreferrer"
-              className="rounded-full border border-ink/15 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-teal"
+              className="inline-flex items-center whitespace-nowrap rounded-full border border-ink/15 bg-white px-4 py-2 text-sm font-semibold leading-none text-ink transition hover:border-teal"
             >
               GitHub
             </a>
@@ -297,8 +311,8 @@ docker compose -f docker-compose.yml \\
               </div>
               <p className="mt-3 text-sm text-ink/60">
                 Images: <code className="rounded bg-mist px-1">mailarchive-api</code>,{" "}
-                <code className="rounded bg-mist px-1">mailarchive-frontend</code>. Private packages
-                need <code className="rounded bg-mist px-1">docker login ghcr.io</code>.
+                <code className="rounded bg-mist px-1">mailarchive-frontend</code> — public on GHCR
+                (anonymous <code className="rounded bg-mist px-1">docker pull</code>).
               </p>
             </div>
           </div>

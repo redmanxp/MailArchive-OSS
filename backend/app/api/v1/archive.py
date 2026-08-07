@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 from app.api.deps.auth import CurrentUserContext, get_current_user, map_domain_error
 from app.application.use_cases.accounts.account_use_cases import (
     ArchiveSingleMessageUseCase,
+    BulkDeleteArchivedMailsUseCase,
     BulkDownloadArchivedMailsUseCase,
     BulkRestoreArchivedMailsUseCase,
+    DeleteArchivedMailUseCase,
     DownloadArchivedAttachmentUseCase,
     DownloadArchivedEmlUseCase,
     GetArchivedMailUseCase,
@@ -39,8 +41,10 @@ from app.schemas.accounts import (
     ArchivedMailIdsResponse,
     ArchivedMailPublic,
     ArchivedMailSearchResponse,
+    BulkDeleteFromArchiveResponse,
     BulkMailIdsRequest,
     BulkRestoreResponse,
+    DeleteFromArchiveResponse,
     RestoreMailRequest,
     RestoreMailResponse,
 )
@@ -202,6 +206,32 @@ def bulk_restore_mails(
     return BulkRestoreResponse(**result)
 
 
+@mails_router.post("/bulk/delete", response_model=BulkDeleteFromArchiveResponse)
+def bulk_delete_mails_from_archive(
+    body: BulkMailIdsRequest,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[CurrentUserContext, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BulkDeleteFromArchiveResponse:
+    delete_uc = DeleteArchivedMailUseCase(
+        archived_repo=SqlAlchemyArchivedMailRepository(db),
+        account_repo=SqlAlchemyMailAccountRepository(db),
+        storage=build_mail_storage(settings),
+        audit_repo=SqlAlchemyAuditLogRepository(db),
+    )
+    uc = BulkDeleteArchivedMailsUseCase(delete_uc)
+    try:
+        result = uc.execute(
+            tenant_id=ctx.user.tenant_id,
+            user_id=ctx.user.id,
+            role=ctx.user.role,
+            mail_ids=body.mail_ids,
+        )
+    except DomainError as exc:
+        raise map_domain_error(exc) from exc
+    return BulkDeleteFromArchiveResponse(**result)
+
+
 @mails_router.get("/{mail_id}", response_model=ArchivedMailDetail)
 def get_mail(
     mail_id: str,
@@ -315,3 +345,28 @@ def restore_mail(
     except DomainError as exc:
         raise map_domain_error(exc) from exc
     return RestoreMailResponse(**result)
+
+
+@mails_router.delete("/{mail_id}", response_model=DeleteFromArchiveResponse)
+def delete_mail_from_archive(
+    mail_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[CurrentUserContext, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DeleteFromArchiveResponse:
+    uc = DeleteArchivedMailUseCase(
+        archived_repo=SqlAlchemyArchivedMailRepository(db),
+        account_repo=SqlAlchemyMailAccountRepository(db),
+        storage=build_mail_storage(settings),
+        audit_repo=SqlAlchemyAuditLogRepository(db),
+    )
+    try:
+        result = uc.execute(
+            tenant_id=ctx.user.tenant_id,
+            user_id=ctx.user.id,
+            role=ctx.user.role,
+            mail_id=mail_id,
+        )
+    except DomainError as exc:
+        raise map_domain_error(exc) from exc
+    return DeleteFromArchiveResponse(**result)

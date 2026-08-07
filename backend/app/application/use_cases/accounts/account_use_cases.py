@@ -479,6 +479,8 @@ class HardDeleteAccountUseCase:
         if self.job_repo is not None:
             jobs_deleted = self.job_repo.delete_for_account(tenant_id, account_id)
 
+        self.archived_repo.delete_exclusions_for_account(tenant_id, account_id)
+
         email = account.email
         if not self.account_repo.delete(tenant_id, account_id):
             raise NotFoundError("Cuenta no encontrada")
@@ -561,6 +563,8 @@ class PurgeAccountArchiveUseCase:
         jobs_deleted = 0
         if self.job_repo is not None:
             jobs_deleted = self.job_repo.delete_for_account(tenant_id, account_id)
+
+        self.archived_repo.delete_exclusions_for_account(tenant_id, account_id)
 
         email = account.email
         if not self.account_repo.delete(tenant_id, account_id):
@@ -972,6 +976,8 @@ class PreviewProviderMessageUseCase:
 
 
 class ArchiveSingleMessageUseCase:
+    _EXCLUDED = object()
+
     def __init__(
         self,
         account_repo: SqlAlchemyMailAccountRepository,
@@ -1013,6 +1019,8 @@ class ArchiveSingleMessageUseCase:
             message_id=message_id,
             folder=folder_id or folder_path,
         )
+        if existing is self._EXCLUDED:
+            return self._excluded_result(message_id)
         if existing is not None:
             return self._handle_already_archived(
                 account=account,
@@ -1049,6 +1057,8 @@ class ArchiveSingleMessageUseCase:
                 provider_message_id=raw.provider_message_id,
                 content_sha256=content_sha,
             )
+            if existing is self._EXCLUDED:
+                return self._excluded_result(message_id)
             if existing is not None:
                 self._maybe_normalize_provider_id(existing, raw.provider_message_id or message_id)
                 deleted = bool(existing.deleted_from_provider)
@@ -1207,21 +1217,44 @@ class ArchiveSingleMessageUseCase:
             candidates.extend(ImapProvider.message_id_aliases(message_id, folder))
             if provider_message_id:
                 candidates.extend(ImapProvider.message_id_aliases(provider_message_id, folder))
+        else:
+            candidates = [mid for mid in (provider_message_id, message_id) if mid]
+
+        if self.archived_repo.is_excluded(
+            tenant_id,
+            account_id,
+            provider_message_ids=candidates,
+            content_sha256=content_sha256,
+        ):
+            return ArchiveSingleMessageUseCase._EXCLUDED
+
+        if provider == MailProviderType.IMAP.value:
             row = self.archived_repo.find_by_provider_message_ids(
                 tenant_id, account_id, candidates
             )
             if row is not None:
                 return row
         else:
-            for mid in (provider_message_id, message_id):
-                if not mid:
-                    continue
+            for mid in candidates:
                 row = self.archived_repo.get_by_provider_message_id(tenant_id, account_id, mid)
                 if row is not None:
                     return row
         if content_sha256:
             return self.archived_repo.get_by_content_sha256(tenant_id, account_id, content_sha256)
         return None
+
+    def _excluded_result(self, message_id: str) -> dict:
+        return {
+            "id": None,
+            "subject": "",
+            "size_bytes": 0,
+            "content_sha256": "",
+            "deleted_from_provider": False,
+            "storage_path": "",
+            "already_archived": True,
+            "excluded": True,
+            "message_id": message_id,
+        }
 
     def _maybe_normalize_provider_id(self, existing: Any, new_id: str) -> None:
         """Upgrade legacy plain IMAP UID to folder\\x1fuid when safe."""
@@ -1743,4 +1776,122 @@ class BulkRestoreArchivedMailsUseCase:
             "failed": failed,
             "requested": len(mail_ids),
             "kept_in_archive": bool(keep_copy),
+        }
+
+
+class DeleteArchivedMailUseCase:
+    """Permanently remove from local archive and tombstone so jobs will not re-download."""
+
+    def __init__(
+        self,
+        archived_repo: SqlAlchemyArchivedMailRepository,
+        account_repo: SqlAlchemyMailAccountRepository,
+        storage: MailStorage,
+        audit_repo: IAuditLogRepository,
+    ) -> None:
+        self.archived_repo = archived_repo
+        self.account_repo = account_repo
+        self.storage = storage
+        self.audit_repo = audit_repo
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        mail_id: str,
+    ) -> dict:
+        if role == UserRole.READONLY:
+            raise AuthorizationError("Rol solo lectura: no puede eliminar del archivo")
+        row = self.archived_repo.get(tenant_id, mail_id)
+        if row is None:
+            raise NotFoundError("Correo archivado no encontrado")
+        if not _can_access_mail(role, user_id, row.user_id):
+            raise AuthorizationError("No puede eliminar este correo")
+
+        account = self.account_repo.get(tenant_id, row.account_id)
+        provider_ids = [row.provider_message_id]
+        if account is not None and account.provider == MailProviderType.IMAP.value:
+            provider_ids = ImapProvider.message_id_aliases(
+                row.provider_message_id, row.folder_path or None
+            )
+
+        for mid in provider_ids:
+            self.archived_repo.add_exclusion(
+                tenant_id=tenant_id,
+                account_id=row.account_id,
+                provider_message_id=mid,
+                content_sha256=row.content_sha256,
+                source_mail_id=mail_id,
+                created_by=user_id,
+            )
+
+        storage_path = self.archived_repo.delete_mail(tenant_id, mail_id)
+        if storage_path:
+            try:
+                self.storage.delete_mail_dir(storage_path)
+            except Exception:
+                logger.exception("No se pudo borrar storage de %s", storage_path)
+
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="mail.deleted_from_archive",
+            resource_type="archived_mail",
+            resource_id=mail_id,
+            details={
+                "account_id": row.account_id,
+                "provider_message_id": row.provider_message_id,
+                "content_sha256": row.content_sha256,
+            },
+        )
+        logger.info(
+            "Deleted from archive mail_id=%s account=%s provider_id=%s",
+            mail_id,
+            row.account_id,
+            row.provider_message_id,
+        )
+        return {"id": mail_id, "deleted": True}
+
+
+class BulkDeleteArchivedMailsUseCase:
+    def __init__(self, delete_uc: DeleteArchivedMailUseCase) -> None:
+        self.delete_uc = delete_uc
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        mail_ids: list[str],
+    ) -> dict:
+        if role == UserRole.READONLY:
+            raise AuthorizationError("Rol solo lectura: no puede eliminar del archivo")
+        if not mail_ids:
+            raise ValidationError("No hay correos seleccionados")
+        if len(mail_ids) > 200:
+            raise ValidationError("Máximo 200 correos por eliminación masiva")
+
+        deleted = 0
+        failed: list[dict] = []
+        for mail_id in mail_ids:
+            try:
+                self.delete_uc.execute(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    role=role,
+                    mail_id=mail_id,
+                )
+                deleted += 1
+            except DomainError as exc:
+                failed.append({"id": mail_id, "error": str(exc)})
+            except Exception as exc:
+                logger.exception("Bulk delete from archive failed %s", mail_id)
+                failed.append({"id": mail_id, "error": str(exc)})
+        return {
+            "requested": len(mail_ids),
+            "deleted": deleted,
+            "failed": failed,
         }

@@ -209,6 +209,35 @@ class ArchivedMailModel(Base):
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class ArchivedMailExclusionModel(Base):
+    """Tombstone: permanently removed from archive; jobs must not re-download."""
+
+    __tablename__ = "archived_mail_exclusions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "account_id",
+            "provider_message_id",
+            name="uq_exclusion_provider_msg",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    account_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), ForeignKey("mail_accounts.id"), nullable=False, index=True
+    )
+    provider_message_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source_mail_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class AttachmentModel(Base):
     __tablename__ = "attachments"
 

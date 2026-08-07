@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-07
+
+### Added
+
+- Delete from archive (single + bulk) with confirmation
+- Tombstone table `archived_mail_exclusions` so scheduled jobs do not re-download excluded messages
+
+### Fixed
+
+- SQLite foreign-key error when deleting archived mails that have attachments
+- Purge / hard-delete account also clears related exclusions
+
 ## [1.0.0] - 2026-08-06
 
 First stable public release.

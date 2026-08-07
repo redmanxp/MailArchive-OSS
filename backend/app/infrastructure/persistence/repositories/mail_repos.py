@@ -6,12 +6,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums.providers import AccountStatus, MailProviderType
 from app.infrastructure.persistence import fts as mail_fts
-from app.infrastructure.persistence.models import ArchivedMailModel, AttachmentModel, MailAccountModel
+from app.infrastructure.persistence.models import (
+    ArchivedMailExclusionModel,
+    ArchivedMailModel,
+    AttachmentModel,
+    MailAccountModel,
+)
 
 
 @dataclass
@@ -463,13 +468,89 @@ class SqlAlchemyArchivedMailRepository:
         if row is None:
             return None
         storage_path = row.storage_path
-        atts = self.list_attachments(tenant_id, mail_id)
-        for att in atts:
-            self._db.delete(att)
+        # Explicit SQL delete so SQLite FK order is correct (ORM flush can delete parent first).
+        self._db.execute(
+            delete(AttachmentModel).where(
+                AttachmentModel.tenant_id == tenant_id,
+                AttachmentModel.archived_mail_id == mail_id,
+            )
+        )
         mail_fts.delete_mail_fts(self._db, mail_id)
         self._db.delete(row)
         self._db.flush()
         return storage_path
+
+    def add_exclusion(
+        self,
+        *,
+        tenant_id: int,
+        account_id: int,
+        provider_message_id: str,
+        content_sha256: str | None = None,
+        source_mail_id: str | None = None,
+        created_by: int | None = None,
+    ) -> None:
+        """Record tombstone so scheduled/manual archive will not re-download this message."""
+        if not provider_message_id:
+            return
+        existing = self._db.scalar(
+            select(ArchivedMailExclusionModel).where(
+                ArchivedMailExclusionModel.tenant_id == tenant_id,
+                ArchivedMailExclusionModel.account_id == account_id,
+                ArchivedMailExclusionModel.provider_message_id == provider_message_id,
+            )
+        )
+        if existing is not None:
+            if content_sha256 and not existing.content_sha256:
+                existing.content_sha256 = content_sha256
+            return
+        self._db.add(
+            ArchivedMailExclusionModel(
+                tenant_id=tenant_id,
+                account_id=account_id,
+                provider_message_id=provider_message_id,
+                content_sha256=content_sha256 or None,
+                source_mail_id=source_mail_id,
+                created_by=created_by,
+            )
+        )
+        self._db.flush()
+
+    def is_excluded(
+        self,
+        tenant_id: int,
+        account_id: int,
+        *,
+        provider_message_ids: list[str] | None = None,
+        content_sha256: str | None = None,
+    ) -> bool:
+        ids = list(dict.fromkeys(x for x in (provider_message_ids or []) if x))
+        clauses = []
+        if ids:
+            clauses.append(ArchivedMailExclusionModel.provider_message_id.in_(ids))
+        if content_sha256:
+            clauses.append(ArchivedMailExclusionModel.content_sha256 == content_sha256)
+        if not clauses:
+            return False
+        row = self._db.scalar(
+            select(ArchivedMailExclusionModel.id).where(
+                ArchivedMailExclusionModel.tenant_id == tenant_id,
+                ArchivedMailExclusionModel.account_id == account_id,
+                or_(*clauses),
+            )
+        )
+        return row is not None
+
+    def delete_exclusions_for_account(self, tenant_id: int, account_id: int) -> int:
+        """Remove tombstones for an account (purge / hard-delete). Returns rows deleted."""
+        result = self._db.execute(
+            delete(ArchivedMailExclusionModel).where(
+                ArchivedMailExclusionModel.tenant_id == tenant_id,
+                ArchivedMailExclusionModel.account_id == account_id,
+            )
+        )
+        self._db.flush()
+        return int(result.rowcount or 0)
 
     def search(
         self,

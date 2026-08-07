@@ -27,6 +27,7 @@ import {
   Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DownloadIcon from "@mui/icons-material/Download";
 import RestoreIcon from "@mui/icons-material/Restore";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -37,8 +38,10 @@ import MailBodyViewer from "../components/MailBodyViewer";
 import { useAuth } from "../auth/AuthContext";
 import { useLocale } from "../i18n/LocaleContext";
 import {
+  bulkDeleteArchivedMails,
   bulkDownloadArchivedMailsToDisk,
   bulkRestoreArchivedMails,
+  deleteArchivedMail,
   downloadAttachmentToDisk,
   downloadEmlToDisk,
   getArchivedMail,
@@ -82,6 +85,8 @@ export default function MailsPage() {
   const [detail, setDetail] = useState<ArchivedMailDetail | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [bulkRestoreOpen, setBulkRestoreOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [keepCopy, setKeepCopy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -89,6 +94,7 @@ export default function MailsPage() {
   const [busy, setBusy] = useState(false);
 
   const canRestore = user?.role !== "readonly";
+  const canDelete = user?.role !== "readonly";
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const noSubject = t("mails", "noSubject", "(sin asunto)");
   const accountLabelById = useMemo(() => {
@@ -314,6 +320,62 @@ export default function MailsPage() {
     }
   }
 
+  async function confirmDelete() {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteArchivedMail(detail.id);
+      setDeleteOpen(false);
+      setDetail(null);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(detail.id);
+        return next;
+      });
+      setInfo(t("mails", "deletedOne"));
+      await load(page);
+    } catch (err: unknown) {
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "deleteError")
+        )
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmBulkDelete() {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const ids = [...selected];
+      const r = await bulkDeleteArchivedMails(ids);
+      setBulkDeleteOpen(false);
+      setSelected(new Set());
+      if (detail && ids.includes(detail.id)) setDetail(null);
+      const failN = r.failed?.length || 0;
+      setInfo(
+        failN
+          ? tf("mails", "deletedPartial", { ok: r.deleted, total: r.requested, fail: failN })
+          : tf("mails", "deletedBulk", { n: r.deleted })
+      );
+      await load(1);
+    } catch (err: unknown) {
+      setError(
+        String(
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            t("mails", "deleteError")
+        )
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AppLayout>
       <PageShell
@@ -457,6 +519,21 @@ export default function MailsPage() {
                         aria-label={t("mails", "restoreSelected")}
                       >
                         <RestoreIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+                {canDelete && (
+                  <Tooltip title={t("mails", "deleteSelected")}>
+                    <span>
+                      <IconButton
+                        color="error"
+                        size="small"
+                        disabled={selected.size === 0 || busy}
+                        onClick={() => setBulkDeleteOpen(true)}
+                        aria-label={t("mails", "deleteSelected")}
+                      >
+                        <DeleteForeverIcon />
                       </IconButton>
                     </span>
                   </Tooltip>
@@ -728,6 +805,20 @@ export default function MailsPage() {
               </span>
             </Tooltip>
           )}
+          {canDelete && (
+            <Tooltip title={t("mails", "deleteFromArchive")}>
+              <span>
+                <IconButton
+                  color="error"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={busy}
+                  aria-label={t("mails", "deleteFromArchive")}
+                >
+                  <DeleteForeverIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -810,6 +901,32 @@ export default function MailsPage() {
           }
         />
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title={t("mails", "deleteTitle")}
+        message={t("mails", "deleteMessage")}
+        confirmLabel={t("mails", "deleteConfirm")}
+        confirmColor="error"
+        loading={busy}
+        onCancel={() => {
+          if (!busy) setDeleteOpen(false);
+        }}
+        onConfirm={confirmDelete}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={t("mails", "bulkDeleteTitle")}
+        message={tf("mails", "bulkDeleteMessage", { n: selected.size })}
+        confirmLabel={t("mails", "deleteSelected")}
+        confirmColor="error"
+        loading={busy}
+        onCancel={() => {
+          if (!busy) setBulkDeleteOpen(false);
+        }}
+        onConfirm={confirmBulkDelete}
+      />
     </AppLayout>
   );
 }

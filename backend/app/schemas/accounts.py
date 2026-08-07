@@ -138,6 +138,17 @@ class BulkRestoreResponse(BaseModel):
     kept_in_archive: bool = False
 
 
+class BulkDeleteFromArchiveResponse(BaseModel):
+    deleted: int
+    failed: list[dict] = Field(default_factory=list)
+    requested: int = 0
+
+
+class DeleteFromArchiveResponse(BaseModel):
+    id: str
+    deleted: bool = True
+
+
 class ArchivedMailDetail(ArchivedMailPublic):
     user_id: int
     provider_message_id: str

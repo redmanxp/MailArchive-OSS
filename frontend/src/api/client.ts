@@ -892,6 +892,20 @@ export async function bulkRestoreArchivedMails(mailIds: string[], keepCopy = fal
   return data;
 }
 
+export async function bulkDeleteArchivedMails(mailIds: string[]) {
+  const { data } = await api.post<{
+    deleted: number;
+    failed: Array<{ id: string; error: string }>;
+    requested: number;
+  }>("/api/v1/mails/bulk/delete", { mail_ids: mailIds }, { timeout: 600000 });
+  return data;
+}
+
+export async function deleteArchivedMail(mailId: string) {
+  const { data } = await api.delete<{ id: string; deleted: boolean }>(`/api/v1/mails/${mailId}`);
+  return data;
+}
+
 export async function getArchivedMail(mailId: string) {
   const { data } = await api.get<ArchivedMailDetail>(`/api/v1/mails/${mailId}`);
   return data;

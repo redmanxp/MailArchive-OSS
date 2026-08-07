@@ -10,6 +10,7 @@ from typing import Any
 from app.application.use_cases.accounts.account_use_cases import ArchiveSingleMessageUseCase
 from app.config import Settings, get_settings
 from app.domain.enums.jobs import ArchiveJobStatus
+from app.domain.enums.providers import MailProviderType
 from app.domain.enums.roles import UserRole
 from app.domain.exceptions import AuthorizationError, NotFoundError, ValidationError
 from app.domain.interfaces.mail_provider import MessageQuery
@@ -423,19 +424,26 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                 ):
                     if min_backfill_received is None or rt < min_backfill_received:
                         min_backfill_received = rt
+            provider_ids = (
+                ImapProvider.message_id_aliases(msg.id, msg.folder)
+                if account.provider == MailProviderType.IMAP.value
+                else [msg.id]
+            )
             existing = archived_repo.find_by_provider_message_ids(
                 tenant_id,
                 account.id,
-                (
-                    ImapProvider.message_id_aliases(msg.id, msg.folder)
-                    if account.provider == "imap"
-                    else [msg.id]
-                ),
+                provider_ids,
             )
-            if existing:
+            excluded = archived_repo.is_excluded(
+                tenant_id,
+                account.id,
+                provider_message_ids=provider_ids,
+            )
+            if excluded or existing:
                 # Upgrade legacy plain IMAP UID → composite id when we skip.
                 if (
-                    account.provider == "imap"
+                    existing
+                    and account.provider == MailProviderType.IMAP.value
                     and msg.id
                     and ImapProvider._ID_SEP in msg.id
                     and existing.provider_message_id != msg.id
@@ -458,7 +466,7 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                         {
                             "message_id": msg.id,
                             "subject": (msg.subject or "")[:200],
-                            "reason": "already_archived",
+                            "reason": "excluded" if excluded and not existing else "already_archived",
                         }
                     )
             else:
@@ -474,15 +482,30 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                         folder_path=msg.folder or folder_path,
                         delete_after_archive=job.delete_after_archive,
                     )
-                    archived += 1
-                    archived_bytes += int(result.get("size_bytes") or msg.size_bytes or 0)
-                    if len(archived_samples) < 15:
-                        archived_samples.append(
-                            {
-                                "message_id": msg.id,
-                                "subject": (msg.subject or result.get("subject") or "")[:200],
-                            }
-                        )
+                    if result.get("excluded") or result.get("already_archived"):
+                        skipped += 1
+                        if len(skipped_samples) < 15:
+                            skipped_samples.append(
+                                {
+                                    "message_id": msg.id,
+                                    "subject": (msg.subject or result.get("subject") or "")[:200],
+                                    "reason": (
+                                        "excluded"
+                                        if result.get("excluded")
+                                        else "already_archived"
+                                    ),
+                                }
+                            )
+                    else:
+                        archived += 1
+                        archived_bytes += int(result.get("size_bytes") or msg.size_bytes or 0)
+                        if len(archived_samples) < 15:
+                            archived_samples.append(
+                                {
+                                    "message_id": msg.id,
+                                    "subject": (msg.subject or result.get("subject") or "")[:200],
+                                }
+                            )
                 except Exception as exc:
                     failed += 1
                     logger.exception("Job %s failed message %s: %s", job_id, msg.id, exc)

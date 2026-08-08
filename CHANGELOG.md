@@ -94,6 +94,7 @@ First stable public release.
 - Alembic migrations covering mail archive schema
 - Docker Compose stack (API + frontend; SQLite default, MySQL profile)
 
-[Unreleased]: https://github.com/redmanxp/MailArchive-OSS/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/redmanxp/MailArchive-OSS/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/redmanxp/MailArchive-OSS/releases/tag/v1.0.1
 [1.0.0]: https://github.com/redmanxp/MailArchive-OSS/releases/tag/v1.0.0
 [0.9.0]: https://github.com/redmanxp/MailArchive-OSS/releases/tag/v0.9.0

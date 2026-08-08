@@ -117,6 +117,21 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 800 
 await context.addInitScript((loc) => localStorage.setItem("ma_ui_locale", loc), locale);
 const page = await context.newPage();
 
+// Tenant install status can override UI locale — force MA_LOCALE for README shots.
+await page.route("**/api/v1/install/status", async (route) => {
+  try {
+    const res = await route.fetch();
+    const json = await res.json();
+    await route.fulfill({
+      status: res.status(),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...json, ui_locale: locale }),
+    });
+  } catch {
+    await route.continue();
+  }
+});
+
 await page.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
 await page.waitForSelector("form input");
 await page.waitForTimeout(1000);

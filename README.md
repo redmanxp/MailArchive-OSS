@@ -229,39 +229,36 @@ deploy/      systemd / nginx examples
 MailArchive is a **self-hosted organizational email archive** — not a real-time mailbox sync tool.
 Language we use on purpose: **scheduled incremental archive**. We avoid “sync” (that implies mirror deletes, bidirectional changes, and conflict resolution).
 
-### v1.0 — Manual archive platform
+### Shipped in 1.0.x
 
 - [x] Manual / bulk archive (Microsoft 365 Graph + IMAP)
 - [x] Search (FTS) + RBAC + audit
 - [x] Open EML storage (filesystem) + optional S3-compatible backend
 - [x] Download EML / ZIP export; restore to provider (optional keep-local-copy)
+- [x] Delete from archive + exclusion tombstones (jobs will not re-download)
 - [x] Docker, i18n ES/EN, SMTP templates, GHCR, docs
+- [x] **Scheduled incremental archive** (per-account; optional historical backfill — not “sync”)
+- [x] Archive status per account; dashboard archive health
+- [x] Admin: transfer linked accounts; unlink keeps archive; deactivate asks transfer vs unlink
+- [x] **Employee departure** wizard (historical pull + keep searchable + disable access)
+- [x] Gmail via **IMAP + App Password** with UI preset (`imap.gmail.com:993`); dedicated Gmail OAuth still optional later
 
-See the full [release checklist](./docs/RELEASE_CHECKLIST.md).
+See the full [release checklist](./docs/RELEASE_CHECKLIST.md) and [TODO](./docs/TODO.md).
 
-### v1.1 — Always-on archive server
+### Next (v1.2)
 
-- [x] **Scheduled incremental archive** (per-account policies; new mail on a schedule — not “sync”)
-- [x] Archive status per account (last / next run, errors) in schedule UI
-- [x] Dashboard polish for archive health
-- [x] **Admin: transfer linked accounts** between users
-- [x] **Unlink account** keeps archived mail; deactivate user asks transfer vs unlink
-- Gmail: use **IMAP + App Password** today; dedicated Gmail OAuth remains optional later
-
-### v1.2 — Offboarding & policies
-
-- [x] **Employee departure archive** — guided “Archive employee mailbox” (historical pull + keep searchable + disable access)
 - [ ] Retention policies (time-based cleanup rules)
 - [ ] Advanced permissions / sharing refinements
 - [ ] Optional Postgres
 - [ ] External queue worker (Redis/Celery) for multi-node
+- [ ] Dedicated Gmail OAuth (optional; IMAP preset already ships)
 
-### v2.0 — Compliance-oriented
+### Later (v2.0 — compliance-oriented)
 
-- [ ] Legal hold
-- [ ] Stronger immutability / WORM-oriented storage options
+- [ ] Legal hold / stronger immutability (WORM-oriented options)
 - [ ] LDAP / Active Directory
 - [ ] Compliance reporting
+- [ ] Deeper multi-tenant SaaS UX
 
 ---
 

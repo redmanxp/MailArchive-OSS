@@ -363,8 +363,8 @@ docker compose -f docker-compose.yml \\
             <article className="rounded-3xl border border-ink/10 bg-teal/5 p-6">
               <h3 className="font-display text-xl font-bold">Gmail note</h3>
               <p className="mt-3 text-ink/75">
-                Dedicated Gmail OAuth is deferred. Use IMAP + Google App Password for now — a UI
-                preset is on the roadmap.
+                Dedicated Gmail OAuth is deferred. Use IMAP + Google App Password — the UI includes
+                a Gmail preset (<code className="rounded bg-mist px-1">imap.gmail.com:993</code>).
               </p>
             </article>
           </div>
@@ -379,25 +379,28 @@ docker compose -f docker-compose.yml \\
             </p>
             <div className="mt-10 grid gap-5 lg:grid-cols-3">
               <article className="rounded-3xl border border-teal/30 bg-white p-6">
-                <p className="text-xs font-bold uppercase tracking-wider text-teal">v1.0</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-teal">through 1.0.1</p>
                 <h3 className="mt-2 font-display text-xl font-bold">Shipped</h3>
                 <ul className="mt-4 space-y-2 text-sm text-ink/75">
                   <li>Manual / bulk archive (M365 + IMAP)</li>
                   <li>FTS search, RBAC, audit</li>
                   <li>S3 storage, export, keep-copy restore</li>
-                  <li>Scheduled incremental archive</li>
+                  <li>Scheduled incremental archive (+ historical backfill)</li>
                   <li>Transfer / unlink / deactivate / purge</li>
+                  <li>Employee departure wizard</li>
+                  <li>Gmail IMAP UI preset (App Password)</li>
+                  <li>Delete from archive (with re-download tombstones)</li>
                 </ul>
               </article>
               <article className="rounded-3xl border border-ink/10 bg-white p-6">
-                <p className="text-xs font-bold uppercase tracking-wider text-amber">v1.2</p>
-                <h3 className="mt-2 font-display text-xl font-bold">Next</h3>
+                <p className="text-xs font-bold uppercase tracking-wider text-amber">Next</p>
+                <h3 className="mt-2 font-display text-xl font-bold">v1.2</h3>
                 <ul className="mt-4 space-y-2 text-sm text-ink/75">
-                  <li>Employee departure archive flow</li>
                   <li>Retention policies UI</li>
                   <li>Optional Postgres</li>
                   <li>External job queue (Redis/Celery)</li>
-                  <li>Gmail IMAP preset in UI</li>
+                  <li>Advanced permissions / sharing</li>
+                  <li>Dedicated Gmail OAuth (optional)</li>
                 </ul>
               </article>
               <article className="rounded-3xl border border-ink/10 bg-white p-6">
@@ -405,6 +408,8 @@ docker compose -f docker-compose.yml \\
                 <h3 className="mt-2 font-display text-xl font-bold">Later</h3>
                 <ul className="mt-4 space-y-2 text-sm text-ink/75">
                   <li>Legal hold / immutability</li>
+                  <li>LDAP / Active Directory</li>
+                  <li>Compliance reporting</li>
                   <li>Deeper multi-tenant SaaS UX</li>
                 </ul>
               </article>

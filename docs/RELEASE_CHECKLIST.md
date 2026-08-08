@@ -9,9 +9,9 @@ Legend: **BLOCKER** must ship · **SHOULD** strongly expected · **NICE** can sl
 
 ## Verdict
 
-Self-hosted pilots are **ready**. Public **v1.0.0** is tagged: GHCR (both packages public), Pages landing, Social preview, docs/CI/Dependabot done.
+Self-hosted pilots are **ready**. Public **v1.0.0** / **v1.0.1** tagged: GHCR (both packages public), Pages landing, Social preview, docs/CI/Dependabot done.
 
-Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`.
+Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`; keep public roadmap (landing + README) aligned with `docs/TODO.md`.
 
 ---
 
@@ -44,7 +44,7 @@ Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`.
 | Durable-ish job worker | Done | `pending` survives restart; orphan `running` → failed; dispatcher |
 | Health endpoint | Done | `/health` |
 | GHCR image + publish workflow | Done | `mailarchive-api` + `mailarchive-frontend` **public**; `publish-ghcr.yml`, `docker-compose.prod.yml` |
-| Postgres optional | **NICE** | Roadmap v1.1 |
+| Postgres optional | **NICE** | Roadmap **v1.2** (not started) |
 
 ---
 
@@ -60,7 +60,12 @@ Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`.
 | Dashboard metrics + health probes | Done | |
 | Branding (name, color, logos) | Done | Defaults + upload |
 | S3-compatible object storage | Done | MinIO / AWS S3 / R2 / Wasabi via settings |
-| Gmail OAuth / retention UI | Roadmap | IMAP+App Password works; dedicated OAuth later |
+| Scheduled archive + historical backfill | Done | Per-account policies |
+| Employee departure | Done | Admin wizard |
+| Gmail IMAP UI preset | Done | App Password; dedicated OAuth later |
+| Delete from archive + exclusions | Done | v1.0.1 tombstones |
+| Retention policies UI | Roadmap v1.2 | Column stub only |
+| Gmail OAuth dedicated | Roadmap | IMAP+App Password works |
 
 ---
 
@@ -102,17 +107,18 @@ Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`.
 
 1. Keep CI green on `main`; triage Dependabot.
 2. ~~Social preview~~ Done.
-3. ~~Tag v1.0.0 + GHCR~~ Done (`v1.0.0` / image tags `1.0.0`).
+3. ~~Tag v1.0.0 + GHCR~~ Done (`v1.0.0` / `v1.0.1`).
 4. Announce with screenshots; optional short demo gif.
+5. Keep landing/README roadmap in sync when features ship.
 
 ---
 
 ## Out of scope for v1.0 (explicit)
 
-- Gmail OAuth provider (IMAP + App Password is supported)  
+- Gmail OAuth provider (IMAP + App Password + UI preset is supported)  
 - LDAP / Active Directory SSO  
 - Multi-tenant SaaS admin UI  
-- Legal hold / retention policy engine  
+- Legal hold / retention policy engine (retention UI is v1.2)  
 - Mobile-first redesign / dark mode  
 
 Document these on the README **Roadmap** so expectations stay honest.

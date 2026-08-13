@@ -104,7 +104,7 @@ export default function DashboardPage() {
                 <MetricCard
                   label={t("dashboard", "metricJobs")}
                   value={metrics.jobs_active}
-                  href="/app/bulk"
+                  href="/app/jobs"
                 />
               </Box>
 
@@ -115,7 +115,7 @@ export default function DashboardPage() {
                 <MetricCard
                   label={t("dashboard", "metricJobsFailed")}
                   value={metrics.jobs_failed ?? 0}
-                  href="/app/bulk"
+                  href="/app/jobs"
                   tone={(metrics.jobs_failed ?? 0) > 0 ? "error" : undefined}
                 />
                 <MetricCard

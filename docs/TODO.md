@@ -61,10 +61,12 @@ Lenguaje: **scheduled incremental archive** — nunca “email sync” (evita ex
 | P4b | Preset UI IMAP Gmail (host/puerto + hint App Password) | P2 | **Hecho** |
 | P5 | Object storage S3 | P1 | **Hecho** |
 | P5b | Restore **keep_copy** | P1 | **Hecho** |
+| P5b2 | Restaurar a **otra cuenta** (usuario=suyas; admin/supervisor=cualquier activa) | P1 | **Hecho** (`target_account_id`; destino ≠ origen → keep_copy) |
 | P5c | Export EML/ZIP | P1 | **Hecho** |
+| P5d | Dedup de **storage** (CAS + Message-ID + refcount; FS + S3) | P1 | **Hecho** (`content_blobs`, skip por RFC Message-ID) |
 | P6 | Postgres opcional | P2 | v1.2 |
-| P7 | Políticas de retención UI | P2 | v1.2 |
-| P7b | Legal hold / inmutabilidad | P2 | v2.0 |
+| P7 | Políticas de retención UI | P2 | v1.2 — ver notas de diseño abajo |
+| P7b | Legal hold / inmutabilidad | P2 | v2.0 (prioridad compliance **antes** que P5d) — ver notas abajo |
 | P8 | **Scheduled incremental archive** (políticas por cuenta; NO “sync”) | P1 | **Hecho** (tabla `archive_schedules` + dispatcher 30s + UI reloj en Cuentas) |
 | P8b | Estado de archivo por cuenta + retry jobs fallidos | P1 | **Hecho** (retry `POST …/jobs/{id}/retry`; dashboard: fallidos / schedules con error / último archivo) |
 | P8c | Worker cola externa (Redis/Celery) | P2 | v1.2 |
@@ -89,6 +91,20 @@ Lenguaje: **scheduled incremental archive** — nunca “email sync” (evita ex
 | Employee departure | Tras archivar: transferir a admin o desvincular | Quedan consultables | Usuario inactivo |
 
 Reglas: **nunca borrar EML por defecto**; borrado de archivo = confirmación explícita (doble) + audit log.
+
+---
+
+### Notas de diseño (local — roadmap futuro; no implementar sin pedido)
+
+**Dedup actual (ya shipped):** por `provider_message_id` (+ aliases IMAP) + SHA-256 del EML + tombstones `archived_mail_exclusions`. Evita re-descargar/re-archivar. Es el dedup correcto para el producto día a día.
+
+**P5d — Dedup de storage (hecho):** blobs CAS `{tenant}/cas/eml|att/{sha256}` + sidecar `metadata.json` por mail + `content_blobs.refcount`. Skip de descarga si el RFC Message-ID ya existe en el tenant (identidad from/subject/sent_at ±120s). Legal hold/retention siguen después; no confundir con el dedup id+SHA+tombstones ya shipped.
+
+**P7b — Legal hold:** tabla tipo `legal_holds` (scope: cuenta, remitente, rango fechas, o mails concretos) que **bloquea cualquier borrado** (manual, retention, purge cuenta/usuario). Mismo patrón que exclusiones pero invertido. Roles Admin/Supervisor aplican/levantan; audit trail obligatorio. Complejidad real = **un check central** en todas las rutas de delete (evitar que un endpoint nuevo se olvide).
+
+**P7 — Retention policies:** policy por scope (tenant/cuenta/carpeta) + regla de edad (“borrar después de X años”) + job programado reusando infraestructura de schedules. Siempre respetar holds activos.
+
+**Orden sugerido para roadmap público (cuando se actualice README/landing):** CAS ya shipped; siguiente compliance = retention + legal hold.
 
 ---
 

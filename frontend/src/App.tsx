@@ -15,6 +15,7 @@ import AccountsPage from "./pages/AccountsPage";
 import ArchivePage from "./pages/ArchivePage";
 import BulkArchivePage from "./pages/BulkArchivePage";
 import BulkPreviewPage from "./pages/BulkPreviewPage";
+import JobsPage from "./pages/JobsPage";
 import MailsPage from "./pages/MailsPage";
 import UsersPage from "./pages/UsersPage";
 import UserFormPage from "./pages/UserFormPage";
@@ -130,6 +131,14 @@ export default function App() {
         element={
           <Protected>
             <BulkPreviewPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/app/jobs"
+        element={
+          <Protected>
+            <JobsPage />
           </Protected>
         }
       />

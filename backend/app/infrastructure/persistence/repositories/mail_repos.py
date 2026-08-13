@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.enums.providers import AccountStatus, MailProviderType
@@ -15,8 +16,16 @@ from app.infrastructure.persistence.models import (
     ArchivedMailExclusionModel,
     ArchivedMailModel,
     AttachmentModel,
+    ContentBlobModel,
     MailAccountModel,
 )
+from app.infrastructure.storage.cas import cas_att_key, cas_eml_key
+
+
+@dataclass
+class DeletedMail:
+    storage_path: str | None
+    orphan_blob_paths: list[str]
 
 
 @dataclass
@@ -282,6 +291,7 @@ class SqlAlchemyArchivedMailRepository:
         attachment_names: str | None,
         deleted_from_provider: bool,
         attachments: list[dict[str, Any]],
+        rfc_message_id: str | None = None,
     ) -> ArchivedMailModel:
         row = ArchivedMailModel(
             id=mail_id,
@@ -299,6 +309,7 @@ class SqlAlchemyArchivedMailRepository:
             has_attachments=has_attachments,
             size_bytes=size_bytes,
             content_sha256=content_sha256,
+            rfc_message_id=rfc_message_id,
             storage_path=storage_path,
             body_preview=body_preview,
             body_text=body_text,
@@ -320,6 +331,25 @@ class SqlAlchemyArchivedMailRepository:
                 )
             )
         self._db.flush()
+        if content_sha256:
+            self.add_blob_ref(
+                tenant_id=tenant_id,
+                sha256=content_sha256,
+                kind="eml",
+                size_bytes=size_bytes,
+                storage_path=cas_eml_key(tenant_id, content_sha256),
+            )
+        for att in attachments:
+            sha = att.get("sha256")
+            if not sha:
+                continue
+            self.add_blob_ref(
+                tenant_id=tenant_id,
+                sha256=sha,
+                kind="att",
+                size_bytes=int(att.get("size_bytes") or 0),
+                storage_path=att.get("storage_path") or cas_att_key(tenant_id, sha),
+            )
         mail_fts.upsert_mail_fts(self._db, row)
         return row
 
@@ -344,16 +374,31 @@ class SqlAlchemyArchivedMailRepository:
     def find_by_provider_message_ids(
         self, tenant_id: int, account_id: int, provider_message_ids: list[str]
     ) -> ArchivedMailModel | None:
-        """Match any of the candidate provider ids (IMAP plain ↔ composite aliases)."""
-        ids = list(dict.fromkeys(mid for mid in provider_message_ids if mid))
+        """Match any of the candidate provider ids (IMAP legacy/composite aliases)."""
+        ids = [x for x in provider_message_ids if x]
         if not ids:
             return None
+        if len(ids) == 1:
+            return self.get_by_provider_message_id(tenant_id, account_id, ids[0])
         return self._db.scalar(
             select(ArchivedMailModel).where(
                 ArchivedMailModel.tenant_id == tenant_id,
                 ArchivedMailModel.account_id == account_id,
                 ArchivedMailModel.provider_message_id.in_(ids),
             )
+        )
+
+    def get_by_rfc_message_id(self, tenant_id: int, rfc_message_id: str) -> ArchivedMailModel | None:
+        """Oldest archived copy of this RFC Message-ID in the tenant (any account)."""
+        if not rfc_message_id:
+            return None
+        return self._db.scalar(
+            select(ArchivedMailModel)
+            .where(
+                ArchivedMailModel.tenant_id == tenant_id,
+                ArchivedMailModel.rfc_message_id == rfc_message_id,
+            )
+            .order_by(ArchivedMailModel.archived_at.asc())
         )
 
     def get_by_content_sha256(
@@ -462,12 +507,18 @@ class SqlAlchemyArchivedMailRepository:
         ).all()
         return [(str(r[0]), str(r[1])) for r in rows]
 
-    def delete_mail(self, tenant_id: int, mail_id: str) -> str | None:
-        """Delete archived mail + attachments. Returns storage_path if deleted."""
+    def delete_mail(self, tenant_id: int, mail_id: str) -> DeletedMail | None:
+        """Delete archived mail + attachments. Returns storage dir + CAS blobs that hit refcount 0."""
         row = self.get(tenant_id, mail_id)
         if row is None:
             return None
         storage_path = row.storage_path
+        eml_sha = row.content_sha256
+        att_shas = [
+            a.sha256
+            for a in self.list_attachments(tenant_id, mail_id)
+            if a.sha256
+        ]
         # Explicit SQL delete so SQLite FK order is correct (ORM flush can delete parent first).
         self._db.execute(
             delete(AttachmentModel).where(
@@ -478,7 +529,119 @@ class SqlAlchemyArchivedMailRepository:
         mail_fts.delete_mail_fts(self._db, mail_id)
         self._db.delete(row)
         self._db.flush()
-        return storage_path
+        orphans: list[str] = []
+        if eml_sha:
+            path = self.release_blob_ref(tenant_id, eml_sha)
+            if path:
+                orphans.append(path)
+        for sha in att_shas:
+            path = self.release_blob_ref(tenant_id, sha)
+            if path:
+                orphans.append(path)
+        return DeletedMail(storage_path=storage_path, orphan_blob_paths=orphans)
+
+    def ensure_blob(
+        self,
+        *,
+        tenant_id: int,
+        sha256: str,
+        kind: str,
+        size_bytes: int,
+        storage_path: str,
+    ) -> None:
+        """Insert blob row with refcount=1 if missing (counts an already-stored donor)."""
+        if not sha256:
+            return
+        existing = self._db.scalar(
+            select(ContentBlobModel).where(
+                ContentBlobModel.tenant_id == tenant_id,
+                ContentBlobModel.sha256 == sha256,
+            )
+        )
+        if existing is not None:
+            return
+        try:
+            with self._db.begin_nested():
+                self._db.add(
+                    ContentBlobModel(
+                        tenant_id=tenant_id,
+                        sha256=sha256,
+                        kind=kind,
+                        size_bytes=size_bytes,
+                        storage_path=storage_path,
+                        refcount=1,
+                    )
+                )
+                self._db.flush()
+        except IntegrityError:
+            return
+
+    def add_blob_ref(
+        self,
+        *,
+        tenant_id: int,
+        sha256: str,
+        kind: str,
+        size_bytes: int,
+        storage_path: str,
+    ) -> None:
+        if not sha256:
+            return
+        existing = self._db.scalar(
+            select(ContentBlobModel).where(
+                ContentBlobModel.tenant_id == tenant_id,
+                ContentBlobModel.sha256 == sha256,
+            )
+        )
+        if existing is not None:
+            existing.refcount = int(existing.refcount or 0) + 1
+            self._db.flush()
+            return
+        try:
+            with self._db.begin_nested():
+                self._db.add(
+                    ContentBlobModel(
+                        tenant_id=tenant_id,
+                        sha256=sha256,
+                        kind=kind,
+                        size_bytes=size_bytes,
+                        storage_path=storage_path,
+                        refcount=1,
+                    )
+                )
+                self._db.flush()
+        except IntegrityError:
+            raced = self._db.scalar(
+                select(ContentBlobModel).where(
+                    ContentBlobModel.tenant_id == tenant_id,
+                    ContentBlobModel.sha256 == sha256,
+                )
+            )
+            if raced is None:
+                raise
+            raced.refcount = int(raced.refcount or 0) + 1
+            self._db.flush()
+
+    def release_blob_ref(self, tenant_id: int, sha256: str) -> str | None:
+        """Decrement refcount. Returns storage_path if the blob is now unused."""
+        if not sha256:
+            return None
+        row = self._db.scalar(
+            select(ContentBlobModel).where(
+                ContentBlobModel.tenant_id == tenant_id,
+                ContentBlobModel.sha256 == sha256,
+            )
+        )
+        if row is None:
+            return None
+        row.refcount = int(row.refcount or 0) - 1
+        if row.refcount > 0:
+            self._db.flush()
+            return None
+        path = row.storage_path
+        self._db.delete(row)
+        self._db.flush()
+        return path
 
     def add_exclusion(
         self,

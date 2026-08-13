@@ -48,7 +48,10 @@ Menú a la izquierda:
 3. Podés vincular **varias** cuentas (M365 y/o IMAP).
 4. Usuarios normales solo ven **sus** cuentas. Admin / Supervisor ven todas las del tenant (con dueño).
 5. Pestañas **Activas** / **Desvinculadas**. En desvinculadas podés reconectar, purgar archivo (confirmación `ELIMINAR`) o borrar el vínculo si no hay archivados.
-6. Icono de **reloj**: archivo incremental programado (solo correos nuevos; no borra del proveedor). En el diálogo ves estado, última/próxima corrida y watermark.
+6. Icono de **reloj**: archivo programado **por cuenta** (no borra del proveedor). En el diálogo ves estado, última/próxima corrida y watermarks.
+   - **Máximo por corrida** (1–2000, predeterminado 500): cuántos correos **nuevos** baja cada job. Los ya archivados no cuentan. **0 no descarga todo**.
+   - **Archivar buzón histórico**: además de lo nuevo, cada corrida sigue hacia atrás hasta llenar ese cupo o hasta que no quede nada. El historial completo se completa en varias corridas (o con “Ejecutar ahora”).
+   - Si no hay correo nuevo, usa el cupo entero para el histórico. Si el buzón ya está cubierto, el job termina rápido sin re-descargar.
 
 ### 4. Archivado masivo (lo más usado)
 
@@ -58,7 +61,7 @@ Menú a la izquierda:
 4. **Comenzar** → aparece “Preparando…” (podés **Cancelar** si tarda demasiado).
 5. Revisá el listado: marcá o desmarcá correos, mirá el contenido si hace falta.
 6. **Iniciar** el archivado.
-7. El proceso sigue **en segundo plano**. Podés seguir usando la app; el avance se ve en **Procesos en curso** (Masivo).
+7. El proceso sigue **en segundo plano**. Podés seguir usando la app; el avance se ve en **Procesos** (menú). Si hay jobs activos, aparece un reloj de arena con la cantidad.
 8. Si un job **falla** o se **cancela**, podés **Reintentar** (mismo criterio). Si hay fallidos, el historial se abre solo.
 
 Los correos ya archivados **no se pierden** si cancelás a mitad de camino. Los jobs en estado `pending` se retoman tras reiniciar la API; uno que estaba `running` al cortar el proceso queda marcado como fallido.
@@ -73,14 +76,16 @@ En **Archivados**:
 | Tabla | Asunto, **Cuenta**, De, fecha del mail, fecha de archivado, tamaño, adjuntos |
 | Ver | Abrí el detalle (cuerpo HTML sanitizado, adjuntos descargables) |
 | Descargar | EML individual o **ZIP** de varios seleccionados |
-| Restaurar | Devuelve el mensaje al proveedor (carpeta MailArchive del buzón) |
+| Restaurar | Devuelve el mensaje al proveedor (carpeta MailArchive del buzón) o a **otra cuenta vinculada** |
 
 #### Restaurar y mantener copia
 
-Al restaurar (uno o varios) aparece el check **Mantener copia en la app** (**desactivado por defecto**):
+Al restaurar (uno o varios) aparece el check **Mantener copia en la app** (**desactivado por defecto**) y el combo **Restaurar a**:
 
-- **Sin check:** restaura al proveedor y **elimina** el correo del archivo local (comportamiento clásico).
-- **Con check:** restaura al proveedor y **deja** la copia en MailArchive (útil como backup). Se marca la fecha de restauración.
+- **Cuenta original:** mismo buzón del que se archivó.
+- **Otra cuenta:** usuario = solo las suyas; admin/supervisor = cualquier cuenta activa del tenant. Si el destino es distinto al origen, **siempre** se mantiene la copia en MailArchive.
+- **Sin check** (solo cuenta original): restaura al proveedor y **elimina** el correo del archivo local.
+- **Con check:** restaura al proveedor y **deja** la copia en MailArchive. Se marca la fecha de restauración.
 
 ### 6. Mi perfil
 
@@ -185,7 +190,7 @@ Roles internos (no son permisos de Microsoft):
 
 - Usá emails laborales reales: ahí llegan los enlaces.
 - Antes de borrar del servidor de correo, asegurate de que el archivado terminó bien.
-- Si un proceso masivo falla, revisá **Procesos en curso**.
+- Si un proceso masivo falla, revisá **Procesos**.
 - ¿No llega el mail? Revisá SMTP, plantillas y spam; o usá el enlace copiable del alta.
 - Para liberar cuota: archivá y marcá borrar del proveedor solo cuando el job terminó OK.
 - Para backup operativo: restaurá con **Mantener copia en la app**, o dejá los EML en filesystem/S3 y respaldá según [BACKUP.md](./BACKUP.md).

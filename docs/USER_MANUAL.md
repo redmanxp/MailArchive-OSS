@@ -48,7 +48,10 @@ Left menu:
 3. You can link **multiple** accounts (M365 and/or IMAP).
 4. Regular users only see **their** accounts. Admin / Supervisor see all tenant accounts (with owner).
 5. Tabs **Active** / **Unlinked**. On unlinked you can reconnect, purge the archive (confirm `ELIMINAR` / DELETE), or remove the link if there are no archived messages.
-6. **Clock** icon: scheduled incremental archive (new mail only; does not delete from the provider). The dialog shows status, last/next run, and watermark.
+6. **Clock** icon: **per-account** scheduled archive (does not delete from the provider). The dialog shows status, last/next run, and watermarks.
+   - **Max messages per run** (1–2000, default 500): how many **new** messages each job archives. Already-archived mail does not count. **0 does not mean download everything**.
+   - **Archive historical mailbox**: besides new mail, each run walks older messages until it fills that cap or the mailbox is exhausted. Full history takes multiple runs (or **Run now**).
+   - If there is no new mail, the whole cap goes to history. If the mailbox is already covered, the job finishes quickly without re-downloading.
 
 ### 4. Bulk archive (most common)
 
@@ -58,7 +61,7 @@ Left menu:
 4. **Start** → “Preparing…” (you can **Cancel** if it takes too long).
 5. Review the list: select/deselect messages, preview if needed.
 6. **Start** the archive job.
-7. The job runs **in the background**. Progress is under **Jobs in progress** (Bulk).
+7. The job runs **in the background**. Progress is under **Jobs** in the menu. Active jobs show an hourglass badge with the count.
 8. If a job **fails** or is **cancelled**, you can **Retry** (same criteria). Job history opens automatically when there are failures.
 
 Messages already archived are **not lost** if you cancel mid-way. `pending` jobs survive an API restart; a job that was `running` when the process died is marked failed.
@@ -73,14 +76,16 @@ In **Archived**:
 | Table | Subject, **Account**, From, mail date, archived date, size, attachments |
 | View | Open detail (sanitized HTML body, downloadable attachments) |
 | Download | Single EML or **ZIP** of selected messages |
-| Restore | Puts the message back on the provider (mailbox MailArchive folder) |
+| Restore | Puts the message back on the provider (mailbox MailArchive folder) or **another linked account** |
 
 #### Restore and keep a copy
 
-When restoring (one or many), use **Keep a copy in the app** (**off by default**):
+When restoring (one or many), use **Keep a copy in the app** (**off by default**) and **Restore to**:
 
-- **Unchecked:** restore to the provider and **remove** from the local archive (classic behavior).
-- **Checked:** restore to the provider and **keep** the copy in MailArchive (backup-style). A restored timestamp is recorded.
+- **Original mailbox:** the account the message was archived from.
+- **Another account:** users see only their own; admin/supervisor can pick any active tenant mailbox. A different destination **always** keeps the MailArchive copy.
+- **Unchecked** (original mailbox only): restore to the provider and **remove** from the local archive.
+- **Checked:** restore to the provider and **keep** the copy in MailArchive. A restored timestamp is recorded.
 
 ### 6. My profile
 
@@ -185,7 +190,7 @@ Internal roles (not Microsoft permissions):
 
 - Use real work emails: that is where links arrive.
 - Before deleting from the mail server, ensure the archive job finished successfully.
-- If a bulk job fails, check **Jobs in progress**.
+- If a bulk job fails, check **Jobs**.
 - Mail not arriving? Check SMTP, templates, and spam — or use the copyable invite link.
 - To free quota: archive and only then delete from the provider after a successful job.
 - For operational backup: restore with **Keep a copy in the app**, or back up EML on filesystem/S3 per [BACKUP.md](./BACKUP.md).

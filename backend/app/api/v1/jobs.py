@@ -50,13 +50,19 @@ def _account_emails(db: Session, tenant_id: int, account_ids: set[int]) -> dict[
 
 
 def _job_public(row, *, account_email: str | None = None) -> ArchiveJobPublic:
-    total = row.total_messages or 0
-    processed = row.processed_messages or 0
-    pct = round((processed / total) * 100, 1) if total else 0.0
     criteria = dict(row.criteria or {}) if row.criteria else {}
     result = criteria.pop("__result", None) if isinstance(criteria, dict) else None
     # Hide internal result key from criteria exposed to clients
     public_criteria = {k: v for k, v in criteria.items() if k != "__result"} if criteria else None
+    total = row.total_messages or 0
+    processed = row.processed_messages or 0
+    archived = row.archived_messages or 0
+    # Scheduled/fill-quota: % is new archives vs limit, not listed messages (skips don't count).
+    quota = bool(
+        (public_criteria or {}).get("source") == "scheduled_incremental"
+        or (public_criteria or {}).get("historical_backfill")
+    )
+    pct = round(((archived if quota else processed) / total) * 100, 1) if total else 0.0
     return ArchiveJobPublic(
         id=row.id,
         account_id=row.account_id,

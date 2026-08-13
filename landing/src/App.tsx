@@ -195,7 +195,7 @@ export default function App() {
               },
               {
                 title: "Fast full-text search",
-                body: "Browse history without the live provider. Download EML/ZIP or restore messages back to the mailbox.",
+                body: "Browse history without the live provider. Download EML/ZIP or restore to the original mailbox or another linked account.",
               },
               {
                 title: "RBAC & audit",
@@ -203,7 +203,7 @@ export default function App() {
               },
               {
                 title: "Open storage",
-                body: "Standard EML + attachments + metadata (SHA-256). Filesystem or S3-compatible object storage.",
+                body: "Standard EML + attachments + metadata (SHA-256), with CAS so identical blobs are stored once per tenant. Filesystem or S3-compatible object storage.",
               },
               {
                 title: "Scheduled incremental archive",
@@ -379,13 +379,14 @@ docker compose -f docker-compose.yml \\
             </p>
             <div className="mt-10 grid gap-5 lg:grid-cols-3">
               <article className="rounded-3xl border border-teal/30 bg-white p-6">
-                <p className="text-xs font-bold uppercase tracking-wider text-teal">through 1.0.1</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-teal">through 1.1.0</p>
                 <h3 className="mt-2 font-display text-xl font-bold">Shipped</h3>
                 <ul className="mt-4 space-y-2 text-sm text-ink/75">
                   <li>Manual / bulk archive (M365 + IMAP)</li>
                   <li>FTS search, RBAC, audit</li>
-                  <li>S3 storage, export, keep-copy restore</li>
+                  <li>S3 + CAS blob sharing; export; restore to another mailbox</li>
                   <li>Scheduled incremental archive (+ historical backfill)</li>
+                  <li>Jobs page (Procesos) with progress</li>
                   <li>Transfer / unlink / deactivate / purge</li>
                   <li>Employee departure wizard</li>
                   <li>Gmail IMAP UI preset (App Password)</li>
@@ -433,6 +434,10 @@ docker compose -f docker-compose.yml \\
               [
                 "What happens when I unlink an account?",
                 "Credentials are cleared (soft-unlink) and archived mail is kept by default. You can reconnect later or purge the archive with an explicit ELIMINAR confirmation.",
+              ],
+              [
+                "If two mailboxes have the same message, is it stored twice?",
+                "Each mailbox still has its own archive row. Identical EML/attachments share one CAS blob per tenant. Jobs skip re-download when the RFC Message-ID already exists.",
               ],
               [
                 "Can I use S3 / MinIO?",

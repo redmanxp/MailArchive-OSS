@@ -174,7 +174,7 @@ export default function BulkPreviewPage() {
       });
       sessionStorage.removeItem(STORAGE_KEY);
       setConfirm(false);
-      navigate("/app/bulk", { replace: true, state: { startedJobId: job.id } });
+      navigate("/app/jobs", { replace: true, state: { startedJobId: job.id } });
     } catch (err: unknown) {
       setError(
         String(

@@ -3,7 +3,7 @@
 MailArchive stores two kinds of data that must be backed up together:
 
 1. **Database** — tenants, users, accounts, mail indexes, jobs, settings  
-2. **Filesystem** — EML files under `STORAGE_ROOT` (`{tenant_id}/{account_id}/…`)
+2. **Filesystem / object storage** — per-mail sidecars under `STORAGE_ROOT` (`{tenant_id}/{account_id}/yyyy/mm/{mail_id}/metadata.json`) and shared CAS blobs (`{tenant_id}/cas/eml/{sha256}`, `{tenant_id}/cas/att/{sha256}`). Legacy trees with `mail.eml` per message still work until optional CAS backfill.
 
 Losing one without the other leaves an inconsistent archive.
 
@@ -53,7 +53,8 @@ mysqldump -h HOST -u USER -p DATABASE > mailarchive-$(date +%F).sql
 2. Backup DB + storage.
 3. `docker compose pull` / rebuild images.
 4. Start API — Alembic runs on startup.
-5. Smoke-test login, accounts list, and one archived mail download.
+5. Smoke-test login, accounts list, **Jobs** (`/app/jobs`), and one archived mail download.
+6. **v1.1.0:** Alembic `0007_content_cas` adds `content_blobs` + `rfc_message_id`. Optional: run `backfill_content_cas` to move legacy EML files into CAS (not required for the app to start).
 
 ## Encryption caveat
 

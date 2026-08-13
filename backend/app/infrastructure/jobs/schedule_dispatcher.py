@@ -130,7 +130,7 @@ def _enqueue_one(schedules: Any, jobs: Any, account: Any, policy: Any) -> int:
         account_id=policy.account_id,
         criteria=criteria,
         delete_after_archive=False,
-        total_messages=0,
+        total_messages=int(policy.limit_per_run or 500),
         total_bytes=0,
         status="pending",
     )

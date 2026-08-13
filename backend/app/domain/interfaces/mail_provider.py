@@ -47,6 +47,7 @@ class MessageSummary:
     size_bytes: int
     has_attachments: bool
     folder: str
+    internet_message_id: str | None = None
 
 
 @dataclass

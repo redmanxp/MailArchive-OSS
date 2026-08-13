@@ -18,6 +18,7 @@ from app.domain.exceptions import AuthorizationError, DomainError, NotFoundError
 from app.domain.interfaces.mail_provider import MessageQuery
 from app.domain.interfaces.repositories import IAuditLogRepository
 from app.infrastructure.persistence.repositories.mail_repos import (
+    DeletedMail,
     SqlAlchemyArchivedMailRepository,
     SqlAlchemyMailAccountRepository,
 )
@@ -25,12 +26,38 @@ from app.infrastructure.persistence.repositories.sqlalchemy_repos import SqlAlch
 from app.infrastructure.providers.factory import MailProviderFactory
 from app.infrastructure.providers.imap_provider import ImapProvider
 from app.infrastructure.providers.microsoft_graph import MicrosoftGraphProvider, MicrosoftOAuthService
-from app.domain.interfaces.mail_storage import MailStorage
+from app.domain.interfaces.mail_storage import MailStorage, StoredAttachment
 from app.infrastructure.security.fernet_cipher import CredentialCipher
+from app.infrastructure.storage.cas import (
+    cas_att_key,
+    cas_eml_key,
+    identity_matches,
+    normalize_rfc_message_id,
+    rfc_message_id_from_eml,
+)
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _cleanup_mail_files(storage: MailStorage, deleted: DeletedMail | str | None) -> None:
+    """Remove per-mail sidecar dir and CAS blobs that reached refcount 0."""
+    if deleted is None:
+        return
+    if isinstance(deleted, str):
+        storage.delete_mail_dir(deleted)
+        return
+    if deleted.storage_path:
+        try:
+            storage.delete_mail_dir(deleted.storage_path)
+        except Exception:
+            logger.exception("No se pudo borrar sidecar %s", deleted.storage_path)
+    for blob_path in deleted.orphan_blob_paths:
+        try:
+            storage.delete_blob(blob_path)
+        except Exception:
+            logger.exception("No se pudo borrar blob CAS %s", blob_path)
 
 
 class OAuthStateService:
@@ -545,10 +572,12 @@ class PurgeAccountArchiveUseCase:
         mails_deleted = 0
         storage_errors = 0
         for mail_id, storage_path in entries:
-            path = self.archived_repo.delete_mail(tenant_id, mail_id)
+            deleted = self.archived_repo.delete_mail(tenant_id, mail_id)
             mails_deleted += 1
             try:
-                self.storage.delete_mail_dir(path or storage_path)
+                _cleanup_mail_files(self.storage, deleted)
+                if deleted is None:
+                    self.storage.delete_mail_dir(storage_path)
             except Exception:
                 storage_errors += 1
                 logger.exception(
@@ -1005,6 +1034,10 @@ class ArchiveSingleMessageUseCase:
         folder_id: str | None = None,
         folder_path: str | None = None,
         delete_after_archive: bool = False,
+        internet_message_id: str | None = None,
+        from_address: str | None = None,
+        subject: str | None = None,
+        sent_at: datetime | None = None,
     ) -> dict:
         account = self.account_repo.get(tenant_id, account_id)
         if account is None:
@@ -1017,7 +1050,7 @@ class ArchiveSingleMessageUseCase:
             account_id=account_id,
             provider=account.provider,
             message_id=message_id,
-            folder=folder_id or folder_path,
+            folder_id=folder_id,
         )
         if existing is self._EXCLUDED:
             return self._excluded_result(message_id)
@@ -1044,23 +1077,91 @@ class ArchiveSingleMessageUseCase:
         )
         provider.connect()
         try:
+            rfc_id = normalize_rfc_message_id(internet_message_id)
+            hint_from = from_address
+            hint_subject = subject
+            hint_sent = sent_at
+            if not rfc_id:
+                try:
+                    summaries = provider.list_messages(
+                        MessageQuery(
+                            message_ids=[message_id],
+                            folder_ids=[folder_id] if folder_id else [],
+                            limit=1,
+                        )
+                    )
+                    if summaries:
+                        summary = summaries[0]
+                        rfc_id = normalize_rfc_message_id(summary.internet_message_id)
+                        hint_from = hint_from or summary.from_address
+                        hint_subject = summary.subject if hint_subject is None else hint_subject
+                        hint_sent = hint_sent or summary.sent_at
+                        folder_id = folder_id or summary.folder
+                        folder_path = folder_path or summary.folder
+                except Exception:
+                    logger.exception(
+                        "Light metadata fetch failed account=%s msg=%s", account_id, message_id
+                    )
+            if rfc_id:
+                linked = self._try_link_shared(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    account_id=account_id,
+                    rfc_id=rfc_id,
+                    from_address=hint_from or "",
+                    subject=hint_subject or "",
+                    sent_at=hint_sent,
+                    provider_message_id=message_id,
+                    folder_path=folder_path or folder_id or "",
+                    delete_after_archive=delete_after_archive,
+                    provider=provider,
+                    message_id=message_id,
+                    folder_id=folder_id,
+                )
+                if linked is not None:
+                    return linked
+
             raw = provider.download_message(message_id, folder=folder_id)
-            content_sha = hashlib.sha256(raw.eml_bytes).hexdigest()
+            content_sha = hashlib.sha256(raw.eml_bytes or b"").hexdigest() if raw.eml_bytes else None
+            rfc_id = rfc_message_id_from_eml(raw.eml_bytes or b"") or rfc_id
+            if rfc_id:
+                linked = self._try_link_shared(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    account_id=account_id,
+                    rfc_id=rfc_id,
+                    from_address=raw.from_address,
+                    subject=raw.subject,
+                    sent_at=raw.sent_at,
+                    provider_message_id=raw.provider_message_id or message_id,
+                    folder_path=folder_path or raw.folder or folder_id or "",
+                    delete_after_archive=delete_after_archive,
+                    provider=provider,
+                    message_id=message_id,
+                    folder_id=folder_id,
+                    to_addresses=",".join(raw.to_addresses),
+                    cc_addresses=",".join(raw.cc_addresses),
+                    received_at=raw.received_at,
+                )
+                if linked is not None:
+                    return linked
             # Re-check after download (scheduled job may have archived meanwhile;
-            # IMAP also matches legacy plain UID vs folder\x1fuid and content hash).
+            # IMAP also matches legacy bare-UID rows + content hash).
             existing = self._find_existing_archived(
                 tenant_id=tenant_id,
                 account_id=account_id,
                 provider=account.provider,
-                message_id=message_id,
-                folder=folder_id or raw.folder or folder_path,
-                provider_message_id=raw.provider_message_id,
+                message_id=raw.provider_message_id or message_id,
+                folder_id=folder_id or raw.folder,
                 content_sha256=content_sha,
             )
             if existing is self._EXCLUDED:
-                return self._excluded_result(message_id)
+                return self._excluded_result(raw.provider_message_id or message_id)
             if existing is not None:
-                self._maybe_normalize_provider_id(existing, raw.provider_message_id or message_id)
+                if account.provider == MailProviderType.IMAP.value:
+                    self._maybe_normalize_provider_id(
+                        existing, raw.provider_message_id or message_id
+                    )
                 deleted = bool(existing.deleted_from_provider)
                 if delete_after_archive and not deleted:
                     provider.delete_message(message_id, folder=folder_id)
@@ -1113,6 +1214,7 @@ class ArchiveSingleMessageUseCase:
                     body_text=raw.body_text,
                     attachment_names=",".join(a.filename for a in raw.attachments),
                     deleted_from_provider=False,
+                    rfc_message_id=rfc_id,
                     attachments=[
                         {
                             "filename": a.filename,
@@ -1140,11 +1242,12 @@ class ArchiveSingleMessageUseCase:
                     tenant_id=tenant_id,
                     account_id=account_id,
                     provider=account.provider,
-                    message_id=message_id,
-                    folder=folder_id or raw.folder or folder_path,
-                    provider_message_id=raw.provider_message_id,
-                    content_sha256=stored.content_sha256,
+                    message_id=raw.provider_message_id or message_id,
+                    folder_id=folder_id or raw.folder,
+                    content_sha256=hashlib.sha256(raw.eml_bytes or b"").hexdigest() if raw.eml_bytes else None,
                 )
+                if raced is self._EXCLUDED:
+                    return self._excluded_result(raw.provider_message_id or message_id)
                 if raced is None:
                     raise
                 deleted = bool(raced.deleted_from_provider)
@@ -1200,6 +1303,201 @@ class ArchiveSingleMessageUseCase:
         finally:
             provider.disconnect()
 
+    def _ensure_donor_cas(self, donor: Any) -> tuple[str, list[dict[str, Any]]] | None:
+        try:
+            eml_bytes = self.storage.read_eml_from_dir(donor.storage_path)
+        except FileNotFoundError:
+            logger.warning("Donor EML missing mail_id=%s path=%s", donor.id, donor.storage_path)
+            return None
+        eml_sha = donor.content_sha256 or hashlib.sha256(eml_bytes).hexdigest()
+        eml_key = cas_eml_key(donor.tenant_id, eml_sha)
+        self.storage.put_blob_if_absent(eml_key, eml_bytes, "message/rfc822")
+        att_payload: list[dict[str, Any]] = []
+        for att in self.archived_repo.list_attachments(donor.tenant_id, donor.id):
+            try:
+                data = self.storage.read_attachment(att.storage_path)
+            except FileNotFoundError:
+                logger.warning("Donor attachment missing mail=%s att=%s", donor.id, att.id)
+                continue
+            sha = att.sha256 or hashlib.sha256(data).hexdigest()
+            key = cas_att_key(donor.tenant_id, sha)
+            self.storage.put_blob_if_absent(key, data, att.content_type or "application/octet-stream")
+            if att.storage_path != key:
+                att.storage_path = key
+            if att.sha256 != sha:
+                att.sha256 = sha
+            att_payload.append(
+                {
+                    "filename": att.filename,
+                    "content_type": att.content_type,
+                    "size_bytes": att.size_bytes,
+                    "sha256": sha,
+                    "storage_path": key,
+                }
+            )
+        if donor.content_sha256 != eml_sha:
+            donor.content_sha256 = eml_sha
+        self.archived_repo._db.flush()
+        return eml_sha, att_payload
+
+    def _try_link_shared(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        account_id: int,
+        rfc_id: str,
+        from_address: str,
+        subject: str,
+        sent_at: datetime | None,
+        provider_message_id: str,
+        folder_path: str,
+        delete_after_archive: bool,
+        provider: Any,
+        message_id: str,
+        folder_id: str | None,
+        to_addresses: str | None = None,
+        cc_addresses: str | None = None,
+        received_at: datetime | None = None,
+    ) -> dict | None:
+        donor = self.archived_repo.get_by_rfc_message_id(tenant_id, rfc_id)
+        if donor is None or donor.account_id == account_id:
+            return None
+        if not identity_matches(
+            donor_from=donor.from_address,
+            donor_subject=donor.subject,
+            donor_sent_at=donor.sent_at,
+            from_address=from_address,
+            subject=subject,
+            sent_at=sent_at,
+        ):
+            logger.warning(
+                "Skip blob share: Message-ID match but identity differs donor=%s account=%s rfc=%s",
+                donor.id,
+                account_id,
+                rfc_id[:48],
+            )
+            return None
+        promoted = self._ensure_donor_cas(donor)
+        if promoted is None:
+            return None
+        eml_sha, att_payload = promoted
+        self.archived_repo.ensure_blob(
+            tenant_id=tenant_id,
+            sha256=eml_sha,
+            kind="eml",
+            size_bytes=int(donor.size_bytes or 0),
+            storage_path=cas_eml_key(tenant_id, eml_sha),
+        )
+        for att in att_payload:
+            self.archived_repo.ensure_blob(
+                tenant_id=tenant_id,
+                sha256=att["sha256"],
+                kind="att",
+                size_bytes=int(att.get("size_bytes") or 0),
+                storage_path=att["storage_path"],
+            )
+        stored_atts = [
+            StoredAttachment(
+                filename=a["filename"],
+                content_type=a["content_type"] or "application/octet-stream",
+                size_bytes=int(a["size_bytes"] or 0),
+                sha256=a["sha256"],
+                relative_path=a["storage_path"],
+            )
+            for a in att_payload
+        ]
+        mail_id = str(uuid.uuid4())
+        rel_dir = self.storage.write_mail_sidecar(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            mail_id=mail_id,
+            content_sha256=eml_sha,
+            attachments=stored_atts,
+            extra_metadata={
+                "provider_message_id": provider_message_id,
+                "subject": subject or donor.subject,
+                "from": from_address or donor.from_address,
+                "shared_from_mail_id": donor.id,
+                "size_bytes": donor.size_bytes,
+            },
+        )
+        try:
+            self.archived_repo.create(
+                mail_id=mail_id,
+                tenant_id=tenant_id,
+                account_id=account_id,
+                user_id=user_id,
+                provider_message_id=provider_message_id,
+                folder_path=folder_path or donor.folder_path or "",
+                subject=subject or donor.subject,
+                from_address=from_address or donor.from_address,
+                to_addresses=to_addresses if to_addresses is not None else (donor.to_addresses or ""),
+                cc_addresses=cc_addresses if cc_addresses is not None else (donor.cc_addresses or ""),
+                sent_at=sent_at or donor.sent_at,
+                received_at=received_at or donor.received_at,
+                has_attachments=bool(att_payload) or bool(donor.has_attachments),
+                size_bytes=int(donor.size_bytes or 0),
+                content_sha256=eml_sha,
+                storage_path=rel_dir,
+                body_preview=donor.body_preview,
+                body_text=donor.body_text,
+                attachment_names=donor.attachment_names,
+                deleted_from_provider=False,
+                rfc_message_id=rfc_id,
+                attachments=att_payload,
+            )
+        except Exception:
+            logger.exception("Shared-blob link insert failed account=%s rfc=%s", account_id, rfc_id[:48])
+            return None
+
+        from app.infrastructure.persistence.database import commit_with_retry
+
+        self.audit_repo.add(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="mail.archived",
+            resource_type="archived_mail",
+            resource_id=mail_id,
+            details={
+                "account_id": account_id,
+                "shared_from_mail_id": donor.id,
+                "rfc_message_id": rfc_id,
+            },
+        )
+        commit_with_retry(self.archived_repo._db)
+
+        deleted = False
+        if delete_after_archive:
+            provider.delete_message(message_id, folder=folder_id)
+            self.archived_repo.mark_deleted_from_provider(tenant_id, mail_id)
+            deleted = True
+            self.audit_repo.add(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="mail.deleted_from_provider",
+                resource_type="archived_mail",
+                resource_id=mail_id,
+                details={"account_id": account_id},
+            )
+        logger.info(
+            "Archived via shared blob mail_id=%s donor=%s account=%s rfc=%s",
+            mail_id,
+            donor.id,
+            account_id,
+            rfc_id[:48],
+        )
+        return {
+            "id": mail_id,
+            "subject": subject or donor.subject,
+            "size_bytes": int(donor.size_bytes or 0),
+            "content_sha256": eml_sha,
+            "deleted_from_provider": deleted,
+            "storage_path": rel_dir,
+            "already_archived": False,
+            "shared_blob": True,
+        }
+
     def _find_existing_archived(
         self,
         *,
@@ -1207,18 +1505,14 @@ class ArchiveSingleMessageUseCase:
         account_id: int,
         provider: str,
         message_id: str,
-        folder: str | None = None,
-        provider_message_id: str | None = None,
+        folder_id: str | None = None,
         content_sha256: str | None = None,
     ) -> Any:
-        """Match archived row by provider id (IMAP aliases) and optional content hash."""
+        """Resolve already-archived row; IMAP matches legacy bare UID + composite aliases."""
         if provider == MailProviderType.IMAP.value:
-            candidates: list[str] = []
-            candidates.extend(ImapProvider.message_id_aliases(message_id, folder))
-            if provider_message_id:
-                candidates.extend(ImapProvider.message_id_aliases(provider_message_id, folder))
+            candidates = ImapProvider.message_id_aliases(message_id, folder_id)
         else:
-            candidates = [mid for mid in (provider_message_id, message_id) if mid]
+            candidates = [message_id] if message_id else []
 
         if self.archived_repo.is_excluded(
             tenant_id,
@@ -1229,19 +1523,18 @@ class ArchiveSingleMessageUseCase:
             return ArchiveSingleMessageUseCase._EXCLUDED
 
         if provider == MailProviderType.IMAP.value:
-            row = self.archived_repo.find_by_provider_message_ids(
+            existing = self.archived_repo.find_by_provider_message_ids(
                 tenant_id, account_id, candidates
             )
-            if row is not None:
-                return row
         else:
-            for mid in candidates:
-                row = self.archived_repo.get_by_provider_message_id(tenant_id, account_id, mid)
-                if row is not None:
-                    return row
-        if content_sha256:
-            return self.archived_repo.get_by_content_sha256(tenant_id, account_id, content_sha256)
-        return None
+            existing = self.archived_repo.get_by_provider_message_id(
+                tenant_id, account_id, message_id
+            )
+        if existing is None and content_sha256:
+            existing = self.archived_repo.get_by_content_sha256(
+                tenant_id, account_id, content_sha256
+            )
+        return existing
 
     def _excluded_result(self, message_id: str) -> dict:
         return {
@@ -1420,6 +1713,15 @@ def _can_access_mail(role: UserRole, user_id: int, mail_user_id: int) -> bool:
     if role in (UserRole.ADMIN, UserRole.SUPERVISOR):
         return True
     return mail_user_id == user_id
+
+
+def _can_restore_to_account(role: UserRole, user_id: int, account: Any) -> bool:
+    """Usuario: solo sus cuentas vinculadas. Admin/Supervisor: cualquier cuenta activa del tenant."""
+    if getattr(account, "status", None) == AccountStatus.UNLINKED.value:
+        return False
+    if role in (UserRole.ADMIN, UserRole.SUPERVISOR):
+        return True
+    return account.user_id == user_id
 
 
 class GetArchivedMailUseCase:
@@ -1610,6 +1912,7 @@ class RestoreArchivedMailUseCase:
         mail_id: str,
         folder_id: str | None = None,
         keep_copy: bool = False,
+        target_account_id: int | None = None,
     ) -> dict:
         if role == UserRole.READONLY:
             raise AuthorizationError("Rol solo lectura: no puede restaurar")
@@ -1619,11 +1922,22 @@ class RestoreArchivedMailUseCase:
         if not _can_access_mail(role, user_id, row.user_id):
             raise AuthorizationError("No puede restaurar este correo")
 
-        account = self.account_repo.get(tenant_id, row.account_id)
+        dest_id = int(target_account_id) if target_account_id else row.account_id
+        cross_account = dest_id != row.account_id
+        if cross_account:
+            keep_copy = True
+
+        account = self.account_repo.get(tenant_id, dest_id)
         if account is None:
-            raise NotFoundError("La cuenta original ya no existe; vinculá la cuenta nuevamente")
-        if role not in (UserRole.ADMIN, UserRole.SUPERVISOR) and account.user_id != user_id:
-            raise AuthorizationError("No puede restaurar con esta cuenta")
+            raise NotFoundError(
+                "La cuenta destino no existe"
+                if cross_account
+                else "La cuenta original ya no existe; vinculá la cuenta nuevamente"
+            )
+        if not _can_restore_to_account(role, user_id, account):
+            raise AuthorizationError("No puede restaurar a esa cuenta")
+        if not account.credentials_encrypted:
+            raise ValidationError("La cuenta destino no tiene credenciales; reconectala")
 
         try:
             eml = self.storage.read_eml_from_dir(row.storage_path)
@@ -1653,6 +1967,9 @@ class RestoreArchivedMailUseCase:
                 resource_id=mail_id,
                 details={
                     "account_id": account.id,
+                    "source_account_id": row.account_id,
+                    "target_account_id": account.id,
+                    "cross_account": cross_account,
                     "provider_message_id": result.provider_message_id,
                     "folder": result.folder,
                     "keep_copy": bool(keep_copy),
@@ -1663,14 +1980,18 @@ class RestoreArchivedMailUseCase:
                 # Backup mode: leave EML + DB row; mark restored_at.
                 self.archived_repo.mark_restored(tenant_id, mail_id)
                 logger.info(
-                    "Restored mail_id=%s keep_copy=true folder=%s",
+                    "Restored mail_id=%s keep_copy=true folder=%s target_account=%s cross=%s",
                     mail_id,
                     result.folder,
+                    account.id,
+                    cross_account,
                 )
             else:
-                self.archived_repo.delete_mail(tenant_id, mail_id)
+                deleted = self.archived_repo.delete_mail(tenant_id, mail_id)
                 try:
-                    self.storage.delete_mail_dir(storage_path)
+                    _cleanup_mail_files(self.storage, deleted)
+                    if deleted is None:
+                        self.storage.delete_mail_dir(storage_path)
                 except Exception:
                     logger.exception("No se pudo borrar storage de %s", storage_path)
             return {
@@ -1746,6 +2067,7 @@ class BulkRestoreArchivedMailsUseCase:
         role: UserRole,
         mail_ids: list[str],
         keep_copy: bool = False,
+        target_account_id: int | None = None,
     ) -> dict:
         if role == UserRole.READONLY:
             raise AuthorizationError("Rol solo lectura: no puede restaurar")
@@ -1764,6 +2086,7 @@ class BulkRestoreArchivedMailsUseCase:
                     role=role,
                     mail_id=mail_id,
                     keep_copy=keep_copy,
+                    target_account_id=target_account_id,
                 )
                 restored += 1
             except DomainError as exc:
@@ -1775,7 +2098,7 @@ class BulkRestoreArchivedMailsUseCase:
             "restored": restored,
             "failed": failed,
             "requested": len(mail_ids),
-            "kept_in_archive": bool(keep_copy),
+            "kept_in_archive": bool(keep_copy) or bool(target_account_id),
         }
 
 
@@ -1827,12 +2150,12 @@ class DeleteArchivedMailUseCase:
                 created_by=user_id,
             )
 
-        storage_path = self.archived_repo.delete_mail(tenant_id, mail_id)
-        if storage_path:
+        deleted = self.archived_repo.delete_mail(tenant_id, mail_id)
+        if deleted:
             try:
-                self.storage.delete_mail_dir(storage_path)
+                _cleanup_mail_files(self.storage, deleted)
             except Exception:
-                logger.exception("No se pudo borrar storage de %s", storage_path)
+                logger.exception("No se pudo borrar storage de %s", deleted.storage_path)
 
         self.audit_repo.add(
             tenant_id=tenant_id,

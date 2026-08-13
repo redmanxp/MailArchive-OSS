@@ -166,7 +166,7 @@ class ImapProvider(MailProvider):
                     logger.exception("IMAP fetch by id failed for %s", mid)
             return results[: query.limit]
 
-        criteria: list
+        criteria: list = []
         if query.older_than:
             # IMAP BEFORE is date-only and exclusive of that calendar day. Use the next
             # day so same-day messages before the watermark are still candidates; then
@@ -177,16 +177,22 @@ class ImapProvider(MailProvider):
             else:
                 ot = ot.astimezone(UTC)
             before_day = ot.date() + timedelta(days=1)
-            criteria = ["BEFORE", before_day.strftime("%d-%b-%Y")]
-        elif query.date_from or query.date_to:
-            criteria = []
-            if query.date_from:
-                criteria.extend(["SINCE", query.date_from.strftime("%d-%b-%Y")])
-            if query.date_to:
-                criteria.extend(["BEFORE", query.date_to.strftime("%d-%b-%Y")])
-            if not criteria:
-                criteria = ["ALL"]
-        else:
+            criteria.extend(["BEFORE", before_day.strftime("%d-%b-%Y")])
+        if query.date_from:
+            df = query.date_from
+            if df.tzinfo is None:
+                df = df.replace(tzinfo=UTC)
+            else:
+                df = df.astimezone(UTC)
+            criteria.extend(["SINCE", df.strftime("%d-%b-%Y")])
+        if query.date_to and not query.older_than:
+            dt = query.date_to
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            else:
+                dt = dt.astimezone(UTC)
+            criteria.extend(["BEFORE", dt.strftime("%d-%b-%Y")])
+        if not criteria:
             criteria = ["ALL"]
 
         for folder in folders:
@@ -250,6 +256,11 @@ class ImapProvider(MailProvider):
                 ot = ot if ot.tzinfo is not None else ot.replace(tzinfo=UTC)
                 if ts.astimezone(UTC) >= ot.astimezone(UTC):
                     continue
+            raw_mid = getattr(env, "message_id", None) if env else None
+            if isinstance(raw_mid, bytes):
+                internet_message_id = raw_mid.decode(errors="replace")
+            else:
+                internet_message_id = str(raw_mid) if raw_mid else None
             results.append(
                 MessageSummary(
                     id=self._compose_message_id(folder, uid),
@@ -261,6 +272,7 @@ class ImapProvider(MailProvider):
                     size_bytes=size,
                     has_attachments=has_att,
                     folder=folder,
+                    internet_message_id=internet_message_id,
                 )
             )
         return results

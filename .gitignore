@@ -138,3 +138,7 @@ e2e/playwright-report/
 .cursor/rules/
 AGENTS.md
 *.tsbuildinfo
+
+# --- Port notes from prod (local only; do not publish) ---
+PORT_*.md
+PORT_*.patch

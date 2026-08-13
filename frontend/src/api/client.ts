@@ -878,7 +878,11 @@ export async function bulkDownloadArchivedMailsToDisk(mailIds: string[]) {
   triggerBlobDownload(blob, filename);
 }
 
-export async function bulkRestoreArchivedMails(mailIds: string[], keepCopy = false) {
+export async function bulkRestoreArchivedMails(
+  mailIds: string[],
+  keepCopy = false,
+  targetAccountId?: number
+) {
   const { data } = await api.post<{
     restored: number;
     failed: Array<{ id: string; error: string }>;
@@ -886,7 +890,11 @@ export async function bulkRestoreArchivedMails(mailIds: string[], keepCopy = fal
     kept_in_archive: boolean;
   }>(
     "/api/v1/mails/bulk/restore",
-    { mail_ids: mailIds, keep_copy: keepCopy },
+    {
+      mail_ids: mailIds,
+      keep_copy: keepCopy,
+      target_account_id: targetAccountId ?? null,
+    },
     { timeout: 600000 }
   );
   return data;
@@ -938,7 +946,10 @@ export async function downloadArchivedAttachment(mailId: string, attachmentId: n
   return { blob: data, filename };
 }
 
-export async function restoreArchivedMail(mailId: string, opts?: { folder_id?: string; keep_copy?: boolean }) {
+export async function restoreArchivedMail(
+  mailId: string,
+  opts?: { folder_id?: string; keep_copy?: boolean; target_account_id?: number }
+) {
   const { data } = await api.post<{
     id: string;
     provider_message_id: string;
@@ -947,7 +958,11 @@ export async function restoreArchivedMail(mailId: string, opts?: { folder_id?: s
     kept_in_archive: boolean;
   }>(
     `/api/v1/mails/${mailId}/restore`,
-    { folder_id: opts?.folder_id, keep_copy: Boolean(opts?.keep_copy) },
+    {
+      folder_id: opts?.folder_id,
+      keep_copy: Boolean(opts?.keep_copy),
+      target_account_id: opts?.target_account_id ?? null,
+    },
     { timeout: 120000 }
   );
   return data;

@@ -51,6 +51,7 @@ def test_save_message_writes_eml_metadata_and_attachment(tmp_path: Path) -> None
     eml_path = tmp_path / stored.eml_path
     assert eml_path.is_file()
     assert eml_path.read_bytes() == eml
+    assert "cas/eml/" in stored.eml_path.replace("\\", "/")
 
     meta_path = tmp_path / stored.metadata_path
     meta = json.loads(meta_path.read_text(encoding="utf-8"))

@@ -9,7 +9,7 @@ Legend: **BLOCKER** must ship · **SHOULD** strongly expected · **NICE** can sl
 
 ## Verdict
 
-Self-hosted pilots are **ready**. Public **v1.0.0** / **v1.0.1** tagged: GHCR (both packages public), Pages landing, Social preview, docs/CI/Dependabot done.
+Self-hosted pilots are **ready**. Public **v1.0.0** / **v1.0.1** / **v1.1.0** tagged: GHCR (both packages public), Pages landing, Social preview, docs/CI/Dependabot done.
 
 Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`; keep public roadmap (landing + README) aligned with `docs/TODO.md`.
 
@@ -64,6 +64,7 @@ Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`; keep pub
 | Employee departure | Done | Admin wizard |
 | Gmail IMAP UI preset | Done | App Password; dedicated OAuth later |
 | Delete from archive + exclusions | Done | v1.0.1 tombstones |
+| CAS storage + restore to another mailbox + Jobs page | Done | v1.1.0 |
 | Retention policies UI | Roadmap v1.2 | Column stub only |
 | Gmail OAuth dedicated | Roadmap | IMAP+App Password works |
 
@@ -107,7 +108,7 @@ Post-release hygiene: keep Dependabot PRs reviewed; CI green on `main`; keep pub
 
 1. Keep CI green on `main`; triage Dependabot.
 2. ~~Social preview~~ Done.
-3. ~~Tag v1.0.0 + GHCR~~ Done (`v1.0.0` / `v1.0.1`).
+3. ~~Tag v1.0.0 + GHCR~~ Done (`v1.0.0` / `v1.0.1` / `v1.1.0`).
 4. Announce with screenshots; optional short demo gif.
 5. Keep landing/README roadmap in sync when features ship.
 

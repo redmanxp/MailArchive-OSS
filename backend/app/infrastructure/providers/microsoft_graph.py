@@ -233,7 +233,7 @@ class MicrosoftGraphProvider(MailProvider):
         folder = query.folder_ids[0] if query.folder_ids else None
         # No folder = whole mailbox (/me/messages covers all folders in Graph).
         path = f"/me/mailFolders/{folder}/messages" if folder else "/me/messages"
-        select = "id,subject,from,toRecipients,receivedDateTime,sentDateTime,hasAttachments,bodyPreview,parentFolderId"
+        select = "id,subject,from,toRecipients,receivedDateTime,sentDateTime,hasAttachments,bodyPreview,parentFolderId,internetMessageId"
         # PR_MESSAGE_SIZE (0x0E08): Graph no expone size en $select estándar.
         expand = "singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')"
         params: dict[str, Any] = {
@@ -640,4 +640,5 @@ class MicrosoftGraphProvider(MailProvider):
             size_bytes=MicrosoftGraphProvider._message_size_bytes(data),
             has_attachments=bool(data.get("hasAttachments")),
             folder=folder,
+            internet_message_id=data.get("internetMessageId") or None,
         )

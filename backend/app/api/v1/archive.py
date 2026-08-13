@@ -200,6 +200,7 @@ def bulk_restore_mails(
             role=ctx.user.role,
             mail_ids=body.mail_ids,
             keep_copy=bool(body.keep_copy),
+            target_account_id=body.target_account_id,
         )
     except DomainError as exc:
         raise map_domain_error(exc) from exc
@@ -341,6 +342,7 @@ def restore_mail(
             mail_id=mail_id,
             folder_id=(body.folder_id if body else None),
             keep_copy=bool(body.keep_copy) if body else False,
+            target_account_id=(body.target_account_id if body else None),
         )
     except DomainError as exc:
         raise map_domain_error(exc) from exc

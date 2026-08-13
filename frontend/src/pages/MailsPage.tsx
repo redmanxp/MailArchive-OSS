@@ -88,6 +88,7 @@ export default function MailsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [keepCopy, setKeepCopy] = useState(false);
+  const [restoreTargetId, setRestoreTargetId] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -104,6 +105,20 @@ export default function MailsPage() {
     }
     return map;
   }, [accounts]);
+  const restoreAccounts = useMemo(
+    () => accounts.filter((a) => a.status && a.status !== "unlinked"),
+    [accounts]
+  );
+  const restoreElsewhere =
+    restoreTargetId !== "" && (detail == null || restoreTargetId !== detail.account_id);
+
+  function accountOptionLabel(a: AccountPublic) {
+    const mail = a.email || a.display_name || `#${a.id}`;
+    if (a.owner_email && a.owner_email.toLowerCase() !== (a.email || "").toLowerCase()) {
+      return `${mail} · ${a.owner_email}`;
+    }
+    return mail;
+  }
 
   const pageAllChecked = mails.length > 0 && mails.every((m) => selected.has(m.id));
   const pageSomeChecked = mails.some((m) => selected.has(m.id)) && !pageAllChecked;
@@ -258,14 +273,29 @@ export default function MailsPage() {
     setBusy(true);
     setError(null);
     try {
-      const kept = keepCopy;
-      const r = await restoreArchivedMail(detail.id, { keep_copy: kept });
+      const target =
+        restoreTargetId === "" || restoreTargetId === detail.account_id
+          ? undefined
+          : Number(restoreTargetId);
+      const kept = Boolean(target) || keepCopy;
+      const r = await restoreArchivedMail(detail.id, {
+        keep_copy: kept,
+        target_account_id: target,
+      });
       setRestoreOpen(false);
       setKeepCopy(false);
+      setRestoreTargetId("");
       if (kept) {
         const refreshed = await getArchivedMail(detail.id);
         setDetail(refreshed);
-        setInfo(tf("mails", "restoredOneKept", { folder: r.folder }));
+        const dest = target
+          ? accountLabelById.get(target) || String(target)
+          : "";
+        setInfo(
+          dest
+            ? tf("mails", "restoredOneOther", { folder: r.folder, email: dest })
+            : tf("mails", "restoredOneKept", { folder: r.folder })
+        );
       } else {
         setDetail(null);
         setSelected((prev) => {
@@ -293,18 +323,25 @@ export default function MailsPage() {
     setBusy(true);
     setError(null);
     try {
-      const kept = keepCopy;
+      const target = restoreTargetId === "" ? undefined : Number(restoreTargetId);
+      const kept = Boolean(target) || keepCopy;
       const ids = [...selected];
-      const r = await bulkRestoreArchivedMails(ids, kept);
+      const r = await bulkRestoreArchivedMails(ids, kept, target);
       setBulkRestoreOpen(false);
       setKeepCopy(false);
+      setRestoreTargetId("");
       setSelected(new Set());
       const failN = r.failed?.length || 0;
       setInfo(
         failN
           ? tf("mails", "restoredPartial", { ok: r.restored, total: r.requested, fail: failN })
           : kept
-            ? tf("mails", "restoredBulkKept", { n: r.restored })
+            ? target
+              ? tf("mails", "restoredBulkOther", {
+                  n: r.restored,
+                  email: accountLabelById.get(target) || String(target),
+                })
+              : tf("mails", "restoredBulkKept", { n: r.restored })
             : tf("mails", "restoredBulk", { n: r.restored })
       );
       await load(1);
@@ -514,6 +551,7 @@ export default function MailsPage() {
                         disabled={selected.size === 0 || busy}
                         onClick={() => {
                           setKeepCopy(false);
+                          setRestoreTargetId("");
                           setBulkRestoreOpen(true);
                         }}
                         aria-label={t("mails", "restoreSelected")}
@@ -795,6 +833,7 @@ export default function MailsPage() {
                   color="primary"
                   onClick={() => {
                     setKeepCopy(false);
+                    setRestoreTargetId("");
                     setRestoreOpen(true);
                   }}
                   disabled={busy}
@@ -837,17 +876,46 @@ export default function MailsPage() {
           if (!busy) {
             setRestoreOpen(false);
             setKeepCopy(false);
+            setRestoreTargetId("");
           }
         }}
         onConfirm={confirmRestore}
       >
+        <TextField
+          select
+          fullWidth
+          size="small"
+          sx={{ mt: 2 }}
+          label={t("mails", "restoreToAccount")}
+          value={restoreTargetId === "" ? "" : String(restoreTargetId)}
+          onChange={(e) => setRestoreTargetId(e.target.value === "" ? "" : Number(e.target.value))}
+          disabled={busy}
+        >
+          <MenuItem value="">
+            {tf("mails", "restoreToOriginal", {
+              email: detail ? accountLabelById.get(detail.account_id) || "" : "",
+            })}
+          </MenuItem>
+          {restoreAccounts
+            .filter((a) => !detail || a.id !== detail.account_id)
+            .map((a) => (
+              <MenuItem key={a.id} value={String(a.id)}>
+                {accountOptionLabel(a)}
+              </MenuItem>
+            ))}
+        </TextField>
+        {restoreElsewhere && (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            {t("mails", "restoreToOtherHint")}
+          </Typography>
+        )}
         <FormControlLabel
           sx={{ mt: 1.5, alignItems: "flex-start" }}
           control={
             <Checkbox
-              checked={keepCopy}
+              checked={restoreElsewhere || keepCopy}
               onChange={(e) => setKeepCopy(e.target.checked)}
-              disabled={busy}
+              disabled={busy || restoreElsewhere}
               size="small"
             />
           }
@@ -877,17 +945,40 @@ export default function MailsPage() {
           if (!busy) {
             setBulkRestoreOpen(false);
             setKeepCopy(false);
+            setRestoreTargetId("");
           }
         }}
         onConfirm={confirmBulkRestore}
       >
+        <TextField
+          select
+          fullWidth
+          size="small"
+          sx={{ mt: 2 }}
+          label={t("mails", "restoreToAccount")}
+          value={restoreTargetId === "" ? "" : String(restoreTargetId)}
+          onChange={(e) => setRestoreTargetId(e.target.value === "" ? "" : Number(e.target.value))}
+          disabled={busy}
+        >
+          <MenuItem value="">{t("mails", "restoreToOriginalEach")}</MenuItem>
+          {restoreAccounts.map((a) => (
+            <MenuItem key={a.id} value={String(a.id)}>
+              {accountOptionLabel(a)}
+            </MenuItem>
+          ))}
+        </TextField>
+        {restoreTargetId !== "" && (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            {t("mails", "restoreToOtherHint")}
+          </Typography>
+        )}
         <FormControlLabel
           sx={{ mt: 1.5, alignItems: "flex-start" }}
           control={
             <Checkbox
-              checked={keepCopy}
+              checked={restoreTargetId !== "" || keepCopy}
               onChange={(e) => setKeepCopy(e.target.checked)}
-              disabled={busy}
+              disabled={busy || restoreTargetId !== ""}
               size="small"
             />
           }

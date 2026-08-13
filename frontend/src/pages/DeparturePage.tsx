@@ -133,7 +133,7 @@ export default function DeparturePage() {
             {doneSummary}
           </Alert>
           <Stack direction="row" spacing={1}>
-            <Button variant="contained" component={RouterLink} to="/app/bulk">
+            <Button variant="contained" component={RouterLink} to="/app/jobs">
               {t("departure", "goJobs")}
             </Button>
             <Button variant="outlined" component={RouterLink} to="/app/users">

@@ -11,6 +11,15 @@ from sqlalchemy.orm import Session
 from app.infrastructure.persistence.models import ArchiveScheduleModel
 
 
+def _aware_utc(dt: datetime | None) -> datetime | None:
+    """SQLite returns naive datetimes; job watermarks are UTC-aware. Compare safely."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 class SqlAlchemyArchiveScheduleRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -128,12 +137,16 @@ class SqlAlchemyArchiveScheduleRepository:
             pass
         row.last_status = status
         row.last_error = (error or None) and str(error)[:1000]
-        if watermark_at is not None:
-            if row.watermark_at is None or watermark_at > row.watermark_at:
-                row.watermark_at = watermark_at
-        if backfill_watermark_at is not None and row.historical_backfill:
-            if row.backfill_watermark_at is None or backfill_watermark_at < row.backfill_watermark_at:
-                row.backfill_watermark_at = backfill_watermark_at
+        wm_new = _aware_utc(watermark_at)
+        wm_old = _aware_utc(row.watermark_at)
+        if wm_new is not None:
+            if wm_old is None or wm_new > wm_old:
+                row.watermark_at = wm_new
+        bf_new = _aware_utc(backfill_watermark_at)
+        bf_old = _aware_utc(row.backfill_watermark_at)
+        if bf_new is not None and row.historical_backfill:
+            if bf_old is None or bf_new < bf_old:
+                row.backfill_watermark_at = bf_new
         self._db.flush()
 
     def to_public(self, row: ArchiveScheduleModel) -> dict[str, Any]:

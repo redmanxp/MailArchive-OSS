@@ -52,10 +52,11 @@ MailArchive gives your organization a **central archive** you host and govern: s
 ### Open storage & export
 
 - Messages stored as standard **EML** + attachments + metadata (SHA-256)
+- **CAS** shared blobs (identical EML/attachments occupy one copy per tenant; refcount on delete)
 - Local filesystem or **S3-compatible** object storage (MinIO, AWS S3, R2, Wasabi, …)
 - Branding assets stay on disk; mail objects can live in the bucket
 - **Export** mailboxes as EML / ZIP — independent from the email provider (no PST lock-in)
-- **Restore** to the provider, with optional keep-local-copy
+- **Restore** to the original mailbox or **another linked account** (cross-account always keeps the archive copy)
 
 ### Mailbox protection
 
@@ -73,7 +74,7 @@ MailArchive gives your organization a **central archive** you host and govern: s
 - Keep **historical communications** after account or tenant changes
 - **Export** an archive in standard EML format, independent of the provider
 - **Reduce mailbox usage** / free quota on Microsoft 365 or IMAP servers
-- Restore selected messages to the provider while optionally retaining the local copy
+- Restore selected messages to the original mailbox or another linked account, optionally keeping the local copy
 - **Employee departure**: archive a leaving employee's mailbox and keep it searchable for admins
 - **Transfer** linked mailboxes between users (admin) when people change roles
 
@@ -137,7 +138,7 @@ cp .env.example .env
 # Set SECRET_KEY, JWT_SECRET_KEY, DATA_ENCRYPTION_KEY (see comments in .env.example)
 
 export GHCR_OWNER=redmanxp
-export MAILARCHIVE_TAG=1.0.0   # or latest
+export MAILARCHIVE_TAG=1.1.0   # or latest
 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
@@ -148,8 +149,8 @@ docker compose -f docker-compose.prod.yml up -d
 Or pull the images directly (public packages — no `docker login` required):
 
 ```bash
-docker pull ghcr.io/redmanxp/mailarchive-api:1.0.0
-docker pull ghcr.io/redmanxp/mailarchive-frontend:1.0.0
+docker pull ghcr.io/redmanxp/mailarchive-api:1.1.0
+docker pull ghcr.io/redmanxp/mailarchive-frontend:1.1.0
 ```
 
 Update later:
@@ -162,7 +163,7 @@ docker compose -f docker-compose.prod.yml up -d
 Optional MySQL: set `DB_ENGINE=mysql` in `.env`, then  
 `docker compose -f docker-compose.prod.yml --profile mysql up -d`.
 
-Images are published on **version tags** (`v1.0.0`, …) and via **Actions → Publish GHCR → Run workflow**. Tags: `latest`, `1`, `1.0`, `1.0.0`.
+Images are published on **version tags** (`v1.1.0`, …) and via **Actions → Publish GHCR → Run workflow**. Tags: `latest`, `1`, `1.1`, `1.1.0`.
 
 ### Option B — Build from source
 
@@ -197,7 +198,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 18100
 # Frontend
 cd frontend
 npm install
-npm run dev   # http://localhost:5175
+npm run dev   # http://localhost:5175 (proxies /api → :18100)
+# Lab on other ports: MAILARCHIVE_DEV_API=http://127.0.0.1:18101 npm run dev -- --port 5176
 ```
 
 On startup the API runs Alembic migrations and creates any missing tables.
@@ -211,7 +213,7 @@ API smoke test: `bash scripts/test_phase0.sh http://127.0.0.1:18100`
 | Backend | Python 3.11+, FastAPI, SQLAlchemy, Alembic, MySQL/SQLite, JWT, Pydantic |
 | Providers | Microsoft Graph (HTTP/`httpx`), IMAPClient |
 | Frontend | React, Vite, TypeScript, Material UI, React Router, Axios |
-| Storage | Filesystem or S3 (`mail.eml` + attachments + `metadata.json`, SHA-256) |
+| Storage | Filesystem or S3 (CAS blobs + per-mail `metadata.json`, SHA-256) |
 
 ## Layout
 
@@ -229,13 +231,15 @@ deploy/      systemd / nginx examples
 MailArchive is a **self-hosted organizational email archive** — not a real-time mailbox sync tool.
 Language we use on purpose: **scheduled incremental archive**. We avoid “sync” (that implies mirror deletes, bidirectional changes, and conflict resolution).
 
-### Shipped in 1.0.x
+### Shipped in 1.0.x–1.1.0
 
 - [x] Manual / bulk archive (Microsoft 365 Graph + IMAP)
 - [x] Search (FTS) + RBAC + audit
 - [x] Open EML storage (filesystem) + optional S3-compatible backend
-- [x] Download EML / ZIP export; restore to provider (optional keep-local-copy)
+- [x] **CAS** blob sharing (identical MIME/attachments once per tenant) + skip by RFC Message-ID
+- [x] Download EML / ZIP export; restore to provider or **another linked mailbox** (optional keep-local-copy)
 - [x] Delete from archive + exclusion tombstones (jobs will not re-download)
+- [x] **Jobs** page (`/app/jobs` — Procesos) with progress and pagination
 - [x] Docker, i18n ES/EN, SMTP templates, GHCR, docs
 - [x] **Scheduled incremental archive** (per-account; optional historical backfill — not “sync”)
 - [x] Archive status per account; dashboard archive health

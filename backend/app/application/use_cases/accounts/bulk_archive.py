@@ -13,7 +13,7 @@ from app.domain.enums.jobs import ArchiveJobStatus
 from app.domain.enums.providers import MailProviderType
 from app.domain.enums.roles import UserRole
 from app.domain.exceptions import AuthorizationError, NotFoundError, ValidationError
-from app.domain.interfaces.mail_provider import MessageQuery
+from app.domain.interfaces.mail_provider import MessageQuery, MessageSummary
 from app.domain.interfaces.repositories import IAuditLogRepository
 from app.infrastructure.persistence.database import SessionLocal, commit_with_retry, write_with_retry
 from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
@@ -87,6 +87,224 @@ def _build_query(criteria: dict[str, Any], *, limit: int) -> MessageQuery:
         message_ids=list(message_ids),
         limit=limit,
     )
+
+
+_FILL_PAGE = 500
+_FILL_MAX_PAGES = 40
+
+
+def _aware_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _received_utc(msg: MessageSummary) -> datetime | None:
+    return _aware_utc(msg.received_at)
+
+
+def _batch_min_received(msgs: list[MessageSummary]) -> datetime | None:
+    times = [t for t in (_received_utc(m) for m in msgs) if t is not None]
+    return min(times) if times else None
+
+
+def _page_query(
+    criteria: dict[str, Any],
+    *,
+    limit: int,
+    date_from: datetime | None = None,
+    older_than: datetime | None = None,
+) -> MessageQuery:
+    folder_id = criteria.get("folder_id") or None
+    return MessageQuery(
+        folder_ids=[folder_id] if folder_id else [],
+        date_from=date_from,
+        date_to=_parse_dt(criteria.get("date_to")),
+        older_than=older_than,
+        min_size_bytes=int(criteria["min_size_bytes"]) if criteria.get("min_size_bytes") else None,
+        only_with_attachments=bool(criteria.get("only_with_attachments")),
+        limit=limit,
+    )
+
+
+def _dedup_ids(account: Any, msg: MessageSummary) -> list[str]:
+    if account.provider == MailProviderType.IMAP.value:
+        return ImapProvider.message_id_aliases(msg.id, msg.folder)
+    return [msg.id]
+
+
+def _note_skip_existing(
+    archived_repo: SqlAlchemyArchivedMailRepository,
+    tenant_id: int,
+    account: Any,
+    msg: MessageSummary,
+) -> str | None:
+    """Return skip reason or None if the message should be archived."""
+    ids = _dedup_ids(account, msg)
+    existing = archived_repo.find_by_provider_message_ids(tenant_id, account.id, ids)
+    excluded = archived_repo.is_excluded(tenant_id, account.id, provider_message_ids=ids)
+    if (
+        existing
+        and account.provider == MailProviderType.IMAP.value
+        and msg.id
+        and ImapProvider._ID_SEP in msg.id
+        and existing.provider_message_id != msg.id
+    ):
+        clash = archived_repo.get_by_provider_message_id(tenant_id, account.id, msg.id)
+        if clash is None or clash.id == existing.id:
+            logger.info(
+                "Normalize provider_message_id mail=%s %r -> %r",
+                existing.id,
+                existing.provider_message_id,
+                msg.id,
+            )
+            existing.provider_message_id = msg.id
+            archived_repo._db.flush()
+    if excluded and not existing:
+        return "excluded"
+    if existing or excluded:
+        return "already_archived"
+    return None
+
+
+def _scan_fill_quota(
+    *,
+    provider: Any,
+    archived_repo: SqlAlchemyArchivedMailRepository,
+    tenant_id: int,
+    account: Any,
+    criteria: dict[str, Any],
+    limit: int,
+    job_id: int,
+    on_progress: Any,
+) -> dict[str, Any]:
+    """Collect up to `limit` not-yet-archived messages. Skips do not consume the quota."""
+    page_size = min(max(limit, 1), _FILL_PAGE)
+    seen_ids: set[str] = set()
+    to_archive: list[MessageSummary] = []
+    skipped = 0
+    skipped_samples: list[dict[str, Any]] = []
+    scanned = 0
+    max_received: datetime | None = None
+    min_received: datetime | None = None
+    min_backfill_received: datetime | None = None
+    bf_before = _parse_dt(criteria.get("backfill_before"))
+    historical = bool(criteria.get("historical_backfill"))
+
+    def _track_received(msg: MessageSummary, *, backfill: bool) -> None:
+        nonlocal max_received, min_received, min_backfill_received
+        rt = _received_utc(msg)
+        if rt is None:
+            return
+        if max_received is None or rt > max_received:
+            max_received = rt
+        if min_received is None or rt < min_received:
+            min_received = rt
+        if historical and (backfill or bf_before is None or rt < bf_before):
+            if min_backfill_received is None or rt < min_backfill_received:
+                min_backfill_received = rt
+
+    def _consume_page(batch: list[MessageSummary], *, backfill: bool) -> list[MessageSummary]:
+        nonlocal skipped, scanned
+        fresh = [m for m in batch if m.id and m.id not in seen_ids]
+        for msg in fresh:
+            seen_ids.add(msg.id)
+            scanned += 1
+            _track_received(msg, backfill=backfill)
+            reason = _note_skip_existing(archived_repo, tenant_id, account, msg)
+            if reason:
+                skipped += 1
+                if len(skipped_samples) < 15:
+                    skipped_samples.append(
+                        {"message_id": msg.id, "subject": (msg.subject or "")[:200], "reason": reason}
+                    )
+                continue
+            to_archive.append(msg)
+            if len(to_archive) >= limit:
+                break
+        return fresh
+
+    def _list_pages(*, date_from: datetime | None, older_than: datetime | None, backfill: bool, label: str) -> bool:
+        cursor = older_than
+        for page_no in range(1, _FILL_MAX_PAGES + 1):
+            if _is_cancelled(job_id) or len(to_archive) >= limit:
+                return False
+            batch = provider.list_messages(
+                _page_query(criteria, limit=page_size, date_from=date_from, older_than=cursor)
+            )
+            fresh = _consume_page(batch, backfill=backfill)
+            logger.info(
+                "Job %s %s page=%s fetched=%s fresh=%s queued=%s skipped=%s cursor=%s",
+                job_id,
+                label,
+                page_no,
+                len(batch),
+                len(fresh),
+                len(to_archive),
+                skipped,
+                cursor.isoformat() if cursor else None,
+            )
+            on_progress(scanned=scanned, skipped=skipped, queued=len(to_archive))
+            if not fresh:
+                return True
+            if len(to_archive) >= limit:
+                return False
+            batch_min = _batch_min_received(fresh)
+            if batch_min is None:
+                return True
+            if cursor is not None and batch_min >= cursor:
+                return True
+            cursor = batch_min
+            if len(fresh) < page_size:
+                return True
+        logger.warning("Job %s %s hit max pages=%s scanned=%s", job_id, label, _FILL_MAX_PAGES, scanned)
+        return True
+
+    date_from = _parse_dt(criteria.get("date_from"))
+    forward_exhausted = _list_pages(date_from=date_from, older_than=None, backfill=False, label="forward")
+    backfill_exhausted = False
+    if historical and len(to_archive) < limit and not _is_cancelled(job_id):
+        if bf_before is None and min_received is not None:
+            bf_before = min_received
+        if bf_before is not None:
+            logger.info(
+                "Job %s historical backfill remaining=%s before=%s forward_exhausted=%s",
+                job_id,
+                limit - len(to_archive),
+                bf_before.isoformat(),
+                forward_exhausted,
+            )
+            backfill_exhausted = _list_pages(
+                date_from=None, older_than=bf_before, backfill=True, label="backfill"
+            )
+        else:
+            logger.info("Job %s historical backfill skipped (no backfill_before yet)", job_id)
+            backfill_exhausted = True
+    elif not historical:
+        backfill_exhausted = True
+
+    if forward_exhausted and (not historical or backfill_exhausted) and len(to_archive) == 0:
+        logger.info(
+            "Job %s mailbox window empty scanned=%s skipped=%s (no more mail to archive)",
+            job_id,
+            scanned,
+            skipped,
+        )
+
+    return {
+        "messages": to_archive,
+        "skipped": skipped,
+        "skipped_samples": skipped_samples,
+        "scanned": scanned,
+        "max_received": max_received,
+        "min_received": min_received,
+        "min_backfill_received": min_backfill_received,
+        "cancelled": _is_cancelled(job_id),
+        "forward_exhausted": forward_exhausted,
+        "backfill_exhausted": backfill_exhausted,
+    }
 
 
 class SimulateBulkArchiveUseCase:
@@ -276,7 +494,6 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
             # Already running, finished, or missing — avoid double execution.
             logger.info("Archive job id=%s tenant=%s not claimed (skip)", job_id, tenant_id)
             return
-        commit_with_retry(db)
 
         criteria = dict(job.criteria or {})
         limit = int(criteria.get("limit") or 500)
@@ -285,6 +502,13 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
         message_ids = criteria.get("message_ids") or None
         if message_ids:
             limit = max(len(message_ids), 1)
+        fill_quota_job = (not message_ids) and (
+            bool(criteria.get("historical_backfill"))
+            or criteria.get("source") == "scheduled_incremental"
+        )
+        if fill_quota_job and not (job.total_messages or 0):
+            job.total_messages = limit
+        commit_with_retry(db)
         account = account_repo.get(tenant_id, job.account_id)
         if account is None:
             job_repo.update_progress(
@@ -307,38 +531,65 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
             credentials_encrypted=account.credentials_encrypted,
             on_tokens_refreshed=_persist if account.provider == "microsoft365" else None,
         )
+        fill_quota = (not message_ids) and (
+            bool(criteria.get("historical_backfill"))
+            or criteria.get("source") == "scheduled_incremental"
+        )
+
+        processed = archived = skipped = failed = 0
+        archived_bytes = 0
+        max_received: datetime | None = None
+        min_received: datetime | None = None
+        min_backfill_received: datetime | None = None
+        skipped_samples: list[dict[str, Any]] = []
+        failed_samples: list[dict[str, Any]] = []
+        archived_samples: list[dict[str, Any]] = []
+
+        def _scan_progress(*, scanned: int, skipped: int, queued: int) -> None:
+            def _p() -> None:
+                job_repo.update_progress(
+                    tenant_id,
+                    job_id,
+                    processed=scanned,
+                    archived=0,
+                    skipped=skipped,
+                    failed=0,
+                    archived_bytes=0,
+                )
+
+            write_with_retry(db, _p)
+
         provider.connect()
         try:
-            messages = provider.list_messages(_build_query(criteria, limit=limit))
-            seen_ids = {m.id for m in messages}
-            # Historical backfill: fill remaining quota with older-than-cursor mail.
-            if bool(criteria.get("historical_backfill")) and len(messages) < limit:
-                remaining = limit - len(messages)
-                backfill_before = _parse_dt(criteria.get("backfill_before"))
-                if backfill_before is not None:
-                    folder_id_bf = criteria.get("folder_id") or None
-                    older_q = MessageQuery(
-                        folder_ids=[folder_id_bf] if folder_id_bf else [],
-                        older_than=backfill_before,
-                        min_size_bytes=(
-                            int(criteria["min_size_bytes"]) if criteria.get("min_size_bytes") else None
-                        ),
-                        only_with_attachments=bool(criteria.get("only_with_attachments")),
-                        limit=remaining,
-                    )
-                    for msg in provider.list_messages(older_q):
-                        if msg.id in seen_ids:
-                            continue
-                        messages.append(msg)
-                        seen_ids.add(msg.id)
-                        if len(messages) >= limit:
-                            break
-                    logger.info(
-                        "Job %s historical backfill before=%s fetched_total=%s",
-                        job_id,
-                        backfill_before.isoformat(),
-                        len(messages),
-                    )
+            if fill_quota:
+                scan = _scan_fill_quota(
+                    provider=provider,
+                    archived_repo=archived_repo,
+                    tenant_id=tenant_id,
+                    account=account,
+                    criteria=criteria,
+                    limit=limit,
+                    job_id=job_id,
+                    on_progress=_scan_progress,
+                )
+                messages = scan["messages"]
+                skipped = int(scan["skipped"])
+                skipped_samples = list(scan["skipped_samples"])
+                processed = skipped
+                max_received = scan["max_received"]
+                min_received = scan["min_received"]
+                min_backfill_received = scan["min_backfill_received"]
+                logger.info(
+                    "Job %s fill-quota queued=%s skipped=%s scanned=%s forward_done=%s backfill_done=%s",
+                    job_id,
+                    len(messages),
+                    skipped,
+                    scan["scanned"],
+                    scan["forward_exhausted"],
+                    scan["backfill_exhausted"],
+                )
+            else:
+                messages = provider.list_messages(_build_query(criteria, limit=limit))
         finally:
             provider.disconnect()
 
@@ -350,15 +601,6 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
             storage=storage,
             audit_repo=audit_repo,
         )
-
-        processed = archived = skipped = failed = 0
-        archived_bytes = 0
-        max_received: datetime | None = None
-        min_received: datetime | None = None
-        min_backfill_received: datetime | None = None
-        skipped_samples: list[dict[str, Any]] = []
-        failed_samples: list[dict[str, Any]] = []
-        archived_samples: list[dict[str, Any]] = []
         role = UserRole.USER  # job owner acts as themselves; permission already checked
         # Use ADMIN for job execution against account ownership already validated
         try:
@@ -481,6 +723,10 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                         folder_id=msg.folder or folder_id,
                         folder_path=msg.folder or folder_path,
                         delete_after_archive=job.delete_after_archive,
+                        internet_message_id=msg.internet_message_id,
+                        from_address=msg.from_address,
+                        subject=msg.subject,
+                        sent_at=msg.sent_at,
                     )
                     if result.get("excluded") or result.get("already_archived"):
                         skipped += 1
@@ -544,10 +790,14 @@ def run_archive_job(job_id: int, tenant_id: int) -> None:
                 archived_bytes=archived_bytes,
                 finished=True,
             )
-            _persist_result()
+            note = None
+            if fill_quota and archived == 0 and not messages:
+                note = "no_pending_mail"
+            _persist_result(note=note)
 
         write_with_retry(db, _complete)
-        watermark = max_received or datetime.now(UTC)
+        # fill-quota empty scan: do not invent "now" or we skip real mail on the next run
+        watermark = max_received if (max_received is not None or fill_quota) else datetime.now(UTC)
         backfill_wm: datetime | None = None
         if bool(criteria.get("historical_backfill")):
             if min_backfill_received is not None:

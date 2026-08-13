@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import {
+  Badge,
   Box,
   Button,
   Divider,
   Drawer,
   List,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
   Stack,
   ThemeProvider,
   Typography,
 } from "@mui/material";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import { createTheme } from "@mui/material/styles";
-import { getAppearance } from "../api/client";
+import { getAppearance, listArchiveJobs } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import BrandLogo from "../components/BrandLogo";
 import { useLocale } from "../i18n/LocaleContext";
@@ -27,6 +30,7 @@ const NAV = [
   { to: "/app/accounts", key: "accounts" },
   { to: "/app/archive", key: "archive" },
   { to: "/app/bulk", key: "bulk" },
+  { to: "/app/jobs", key: "jobs" },
   { to: "/app/mails", key: "mails" },
   { to: "/app/users", key: "users", admin: true },
   { to: "/app/audit", key: "audit", admin: true },
@@ -48,6 +52,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [brandName, setBrandName] = useState("");
   const [primaryColor, setPrimaryColor] = useState("");
   const [logoBust, setLogoBust] = useState(0);
+  const [activeJobs, setActiveJobs] = useState(0);
 
   useEffect(() => {
     getAppearance()
@@ -58,6 +63,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       })
       .catch(() => undefined);
   }, [location.pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      listArchiveJobs()
+        .then((rows) => {
+          if (cancelled) return;
+          setActiveJobs(rows.filter((j) => j.status === "pending" || j.status === "running").length);
+        })
+        .catch(() => undefined);
+    };
+    tick();
+    const timer = setInterval(tick, activeJobs > 0 ? 4000 : 12000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeJobs]);
 
   const themed = useMemo(() => {
     if (!primaryColor) return baseTheme;
@@ -88,6 +111,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             color: "primary.contrastText",
             display: "flex",
             flexDirection: "column",
+            "@keyframes ma-spin": {
+              from: { transform: "rotate(0deg)" },
+              to: { transform: "rotate(360deg)" },
+            },
           },
         }}
       >
@@ -116,6 +143,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <List sx={{ flex: 1, py: 1, px: 1, overflowY: "auto" }}>
           {NAV.filter((n) => !("admin" in n && n.admin) || isAdmin).map((item) => {
             const active = isActive(location.pathname, item.to, "end" in item ? item.end : false);
+            const showJobIcon = item.key === "jobs" && activeJobs > 0;
             return (
               <ListItemButton
                 key={item.to}
@@ -126,7 +154,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   borderRadius: 1,
                   mb: 0.25,
                   color: "inherit",
-                  opacity: active ? 1 : 0.82,
+                  opacity: active || showJobIcon ? 1 : 0.82,
                   "&.Mui-selected": {
                     bgcolor: "rgba(255,255,255,0.16)",
                     "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
@@ -134,10 +162,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   "&:hover": { bgcolor: "rgba(255,255,255,0.1)" },
                 }}
               >
+                {showJobIcon && (
+                  <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}>
+                    <Badge
+                      badgeContent={activeJobs}
+                      color="warning"
+                      overlap="circular"
+                      sx={{
+                        "& .MuiBadge-badge": {
+                          fontSize: "0.65rem",
+                          minWidth: 16,
+                          height: 16,
+                          color: "#1a1a1a",
+                        },
+                      }}
+                    >
+                      <HourglassEmptyIcon
+                        fontSize="small"
+                        sx={{ animation: "ma-spin 1.6s linear infinite" }}
+                      />
+                    </Badge>
+                  </ListItemIcon>
+                )}
                 <ListItemText
                   primary={t("nav", item.key)}
                   primaryTypographyProps={{
-                    fontWeight: active ? 600 : 400,
+                    fontWeight: active || showJobIcon ? 600 : 400,
                     fontSize: "0.9375rem",
                   }}
                 />

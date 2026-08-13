@@ -200,6 +200,7 @@ class ArchivedMailModel(Base):
     has_attachments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), nullable=False, default=0)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    rfc_message_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     body_preview: Mapped[str | None] = mapped_column(String(500), nullable=True)
     body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -251,6 +252,24 @@ class AttachmentModel(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), nullable=False, default=0)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+
+
+class ContentBlobModel(Base):
+    """Tenant-scoped CAS object (EML or attachment) with reference count."""
+
+    __tablename__ = "content_blobs"
+    __table_args__ = (UniqueConstraint("tenant_id", "sha256", name="uq_content_blob_sha"),)
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), nullable=False, default=0)
+    storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    refcount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class ArchiveJobModel(Base):

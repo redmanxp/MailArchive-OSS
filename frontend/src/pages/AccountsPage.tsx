@@ -949,6 +949,7 @@ export default function AccountsPage() {
               disabled={loading}
               size="small"
               inputProps={{ min: 1, max: 2000 }}
+              helperText={t("accounts", "scheduleLimitHint")}
             />
             <FormControlLabel
               control={

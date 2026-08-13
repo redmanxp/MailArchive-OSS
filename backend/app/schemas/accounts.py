@@ -96,6 +96,7 @@ class ArchiveMessageResponse(BaseModel):
     deleted_from_provider: bool
     storage_path: str
     already_archived: bool = False
+    shared_blob: bool = False
 
 
 class ArchivedMailPublic(BaseModel):
@@ -129,6 +130,7 @@ class ArchivedMailIdsResponse(BaseModel):
 class BulkMailIdsRequest(BaseModel):
     mail_ids: list[str] = Field(..., min_length=1, max_length=500)
     keep_copy: bool = False
+    target_account_id: int | None = None
 
 
 class BulkRestoreResponse(BaseModel):
@@ -205,6 +207,7 @@ class PurgeAccountArchiveResponse(BaseModel):
 class RestoreMailRequest(BaseModel):
     folder_id: str | None = None
     keep_copy: bool = False
+    target_account_id: int | None = None
 
 
 class RestoreMailResponse(BaseModel):

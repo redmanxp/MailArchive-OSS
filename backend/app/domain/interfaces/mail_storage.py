@@ -50,6 +50,32 @@ class MailStorage(ABC):
     @abstractmethod
     def delete_mail_dir(self, relative_dir: str) -> None: ...
 
+    def put_blob_if_absent(self, relative: str, data: bytes, content_type: str = "application/octet-stream") -> bool:
+        """Write CAS blob if missing. Returns True if this call created the object."""
+        raise NotImplementedError
+
+    def put_blob_from_path(self, relative: str, source: str, content_type: str = "application/octet-stream") -> bool:
+        from pathlib import Path
+
+        return self.put_blob_if_absent(relative, Path(source).read_bytes(), content_type)
+
+    def delete_blob(self, relative: str) -> None:
+        """Delete a CAS blob. Missing keys are ignored."""
+        raise NotImplementedError
+
+    def write_mail_sidecar(
+        self,
+        *,
+        tenant_id: int,
+        account_id: int,
+        mail_id: str,
+        content_sha256: str,
+        attachments: list[StoredAttachment],
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Write metadata.json for a mail that reuses existing CAS blobs. Returns relative_dir."""
+        raise NotImplementedError
+
     def health_check(self) -> tuple[bool, str]:
         """Optional probe for dashboard. Default: OK."""
         return True, "ok"

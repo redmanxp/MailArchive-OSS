@@ -229,6 +229,11 @@ export default function App() {
               ["dashboard.png", "Dashboard"],
               ["archive.png", "Archived search"],
               ["accounts.png", "Accounts"],
+              ["jobs.png", "Jobs"],
+              ["bulk.png", "Bulk archive"],
+              ["restore.png", "Restore"],
+              ["users.png", "Users"],
+              ["settings.png", "Settings"],
             ].map(([src, alt]) => (
               <figure key={src} className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
                 <img src={asset(`images/${src}`)} alt={alt} className="w-full" loading="lazy" />

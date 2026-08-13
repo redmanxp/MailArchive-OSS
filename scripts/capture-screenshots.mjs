@@ -1,10 +1,11 @@
 /**
- * Capture README screenshots with PII redacted in the DOM.
+ * Capture README / landing screenshots with PII redacted in the DOM.
  *
  *   cd frontend && node ../scripts/capture-screenshots.mjs
  *
  * Env: MA_BASE_URL MA_TENANT MA_EMAIL MA_PASSWORD MA_LOCALE
- * Replaces real emails/names with @example.com placeholders before each shot.
+ * Replaces real emails, hostnames, person names, and mail subjects
+ * with demo placeholders before each shot.
  */
 import { createRequire } from "module";
 import { mkdir } from "fs/promises";
@@ -22,7 +23,6 @@ const password = process.env.MA_PASSWORD || "DemoPass123!";
 const tenant = process.env.MA_TENANT || "demo";
 const locale = process.env.MA_LOCALE || "en";
 
-/** Stable demo labels for README (order of first appearance). */
 const DEMO_MAILBOXES = [
   "hr@example.com",
   "info@example.com",
@@ -32,12 +32,21 @@ const DEMO_MAILBOXES = [
   "support@example.com",
 ];
 const DEMO_NAMES = ["User Demo", "Colleague Demo", "Owner Demo"];
+const DEMO_SUBJECTS = [
+  "Quarterly planning notes",
+  "Invoice follow-up",
+  "Meeting recap",
+  "Project kickoff",
+  "Weekly status",
+  "Contract draft",
+  "Welcome aboard",
+  "Schedule update",
+];
 
 async function redactPii(page) {
   await page.evaluate(
-    ({ demoMails, demoNames }) => {
+    ({ demoMails, demoNames, demoSubjects }) => {
       const emailRe = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-      // Real-looking hostnames (SMTP, IMAP, etc.) — keep example.com / localhost / minio / docker DNS
       const hostRe =
         /\b(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|ar|es|uk|de|fr|edu|gov)(?:\.[a-z]{2})?)\b/gi;
       const keepHost = /^(localhost|example\.com|.*\.example\.com|minio|mailarchive-[a-z0-9-]+)$/i;
@@ -46,6 +55,8 @@ async function redactPii(page) {
       let nameIdx = 0;
       let hostIdx = 0;
       const demoHosts = ["smtp.example.com", "mail.example.com", "imap.example.com"];
+      const roleRe =
+        /^(Administrator|Admin|Supervisor|User|Read-?only|Solo lectura|Administrador|Usuarios?)$/i;
 
       function mapEmail(raw) {
         const key = raw.toLowerCase();
@@ -63,18 +74,90 @@ async function redactPii(page) {
         return demoHosts[hostIdx++ % demoHosts.length];
       }
 
+      function maybeAddName(found, raw) {
+        const name = (raw || "").trim();
+        if (!name || name.includes("@") || roleRe.test(name) || /demo$/i.test(name)) return;
+        if (name.split(/\s+/).length < 2 || name.length > 80) return;
+        if (/^(sign out|sign in|mail archive|microsoft 365|active jobs)$/i.test(name)) return;
+        found.add(name);
+      }
+
+      function collectPersonNames() {
+        const found = new Set();
+        const headers = [...document.querySelectorAll("th")];
+        headers.forEach((th, idx) => {
+          if (!/^(name|nombre|user|usuario|owner|dueño)$/i.test((th.innerText || "").trim())) return;
+          document.querySelectorAll("tbody tr").forEach((tr) => {
+            const td = tr.querySelectorAll("td")[idx];
+            if (!td) return;
+            for (const line of (td.innerText || "").split("\n")) maybeAddName(found, line);
+          });
+        });
+        const aside =
+          document.querySelector(".MuiDrawer-paper") ||
+          document.querySelector("[class*='MuiDrawer-paper']") ||
+          document.querySelector("aside, nav");
+        if (aside) {
+          const texts = [];
+          const w = document.createTreeWalker(aside, NodeFilter.SHOW_TEXT);
+          while (w.nextNode()) {
+            const t = (w.currentNode.nodeValue || "").trim();
+            if (t) texts.push(t);
+          }
+          const emailIdx = texts.findIndex((t) => {
+            emailRe.lastIndex = 0;
+            return emailRe.test(t);
+          });
+          if (emailIdx > 0) {
+            for (let i = emailIdx - 1; i >= 0; i -= 1) {
+              if (roleRe.test(texts[i]) || texts[i].includes("@")) continue;
+              maybeAddName(found, texts[i]);
+              break;
+            }
+          }
+        }
+        return [...found].sort((a, b) => b.length - a.length);
+      }
+
+      const knownNames = collectPersonNames();
+      const nameMap = new Map();
+      function mapName(raw) {
+        const key = raw.toLowerCase();
+        if (/demo$/i.test(raw)) return raw;
+        if (!nameMap.has(key)) {
+          nameMap.set(key, demoNames[nameIdx % demoNames.length]);
+          nameIdx += 1;
+        }
+        return nameMap.get(key);
+      }
+
       function scrubText(text) {
         if (!text) return text;
         let out = text.replace(emailRe, (m) => mapEmail(m));
         out = out.replace(hostRe, (m) => mapHost(m));
-        out = out.replace(/\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\b/g, (full) => {
-          const keep = /^(Admin Demo|Mail Archive|Microsoft|User Demo|Colleague Demo|Owner Demo)$/i;
-          if (keep.test(full) || /Demo$/i.test(full)) return full;
-          const replacement = demoNames[nameIdx % demoNames.length];
-          nameIdx += 1;
-          return replacement;
-        });
+        for (const name of knownNames) {
+          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          out = out.replace(new RegExp(escaped, "gi"), () => mapName(name));
+        }
         return out;
+      }
+
+      const headers = [...document.querySelectorAll("th")];
+      const subjectIdx = headers.findIndex((th) => /subject|asunto/i.test(th.innerText || ""));
+      if (subjectIdx >= 0) {
+        document.querySelectorAll("tbody tr").forEach((tr, i) => {
+          const td = tr.querySelectorAll("td")[subjectIdx];
+          if (!td) return;
+          td.querySelectorAll("*").forEach((el) => {
+            if (el.childElementCount === 0 && (el.textContent || "").trim()) {
+              el.textContent = demoSubjects[i % demoSubjects.length];
+            }
+          });
+          if (!(td.textContent || "").trim()) return;
+          if (![...td.querySelectorAll("*")].some((el) => (el.textContent || "").includes(demoSubjects[0]))) {
+            td.textContent = demoSubjects[i % demoSubjects.length];
+          }
+        });
       }
 
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -99,13 +182,13 @@ async function redactPii(page) {
         }
       }
     },
-    { demoMails: DEMO_MAILBOXES, demoNames: DEMO_NAMES }
+    { demoMails: DEMO_MAILBOXES, demoNames: DEMO_NAMES, demoSubjects: DEMO_SUBJECTS }
   );
 }
 
 async function shot(page, name) {
   await redactPii(page);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(250);
   const file = path.join(outDir, name);
   await page.screenshot({ path: file });
   console.log("wrote", file);
@@ -117,7 +200,6 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 800 
 await context.addInitScript((loc) => localStorage.setItem("ma_ui_locale", loc), locale);
 const page = await context.newPage();
 
-// Tenant install status can override UI locale — force MA_LOCALE for README shots.
 await page.route("**/api/v1/install/status", async (route) => {
   try {
     const res = await route.fetch();
@@ -156,10 +238,25 @@ for (const [route, name] of [
   ["/app/settings", "settings.png"],
   ["/app/mails", "archive.png"],
   ["/app/accounts", "accounts.png"],
+  ["/app/jobs", "jobs.png"],
+  ["/app/bulk", "bulk.png"],
 ]) {
   await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
   await shot(page, name);
+}
+
+await page.goto(`${base}/app/mails`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1500);
+const rowCheck = page.locator("tbody tr input[type=checkbox]").first();
+if ((await rowCheck.count()) > 0) {
+  await rowCheck.check({ force: true });
+  const restoreBtn = page.getByRole("button", { name: /restore selected|restaurar seleccionados/i });
+  if ((await restoreBtn.count()) > 0 && (await restoreBtn.isEnabled())) {
+    await restoreBtn.click();
+    await page.waitForTimeout(600);
+    await shot(page, "restore.png");
+  }
 }
 
 await browser.close();

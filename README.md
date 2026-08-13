@@ -94,6 +94,14 @@ MailArchive gives your organization a **central archive** you host and govern: s
 |-----------------|----------|
 | ![Archive search](docs/images/archive.png) | ![Accounts](docs/images/accounts.png) |
 
+| Jobs | Bulk archive |
+|------|--------------|
+| ![Jobs](docs/images/jobs.png) | ![Bulk archive](docs/images/bulk.png) |
+
+| Restore |
+|---------|
+| ![Restore to another account](docs/images/restore.png) |
+
 ---
 
 ## Technical highlights

@@ -45,7 +45,7 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.meta_name.outputs.image }}
           # latest on Release tags (v*) or manual run from default branch

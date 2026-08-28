@@ -47,7 +47,7 @@ Left menu:
    - **Generic IMAP**: host, port, SSL, user, and password; you can **Test connection** before saving. The password is encrypted at rest.
 3. You can link **multiple** accounts (M365 and/or IMAP).
 4. Regular users only see **their** accounts. Admin / Supervisor see all tenant accounts (with owner).
-5. Tabs **Active** / **Unlinked**. On unlinked you can reconnect, purge the archive (confirm `ELIMINAR` / DELETE), or remove the link if there are no archived messages.
+5. Tabs **Active** / **Unlinked**. On unlinked you can reconnect, purge the archive (confirm `ELIMINAR` / DELETE), or remove the link if there are no archived messages. Purging runs in the background; follow it under **Jobs**.
 6. **Clock** icon: **per-account** scheduled archive (does not delete from the provider). The dialog shows status, last/next run, and watermarks.
    - **Max messages per run** (1–2000, default 500): how many **new** messages each job archives. Already-archived mail does not count. **0 does not mean download everything**.
    - **Archive historical mailbox**: besides new mail, each run walks older messages until it fills that cap or the mailbox is exhausted. Full history takes multiple runs (or **Run now**).

@@ -49,6 +49,7 @@ function formatBytes(n: number) {
 function criteriaSourceLabel(criteria: Record<string, unknown> | null | undefined, t: (ns: string, k: string) => string) {
   const src = String(criteria?.source || "");
   if (src === "scheduled_incremental") return t("bulk", "sourceScheduled");
+  if (src === "purge_account_archive") return t("bulk", "sourcePurge");
   if (src) return src;
   return t("bulk", "sourceManual");
 }
@@ -56,6 +57,10 @@ function criteriaSourceLabel(criteria: Record<string, unknown> | null | undefine
 function isQuotaJob(j: ArchiveJob) {
   const src = String(j.criteria?.source || "");
   return src === "scheduled_incremental" || Boolean(j.criteria?.historical_backfill);
+}
+
+function isPurgeJob(j: ArchiveJob) {
+  return String(j.criteria?.source || "") === "purge_account_archive";
 }
 
 const PAGE_SIZE = 25;
@@ -202,26 +207,37 @@ export default function JobsPage() {
                     <TableCell>{jobStatusLabel(j.status)}</TableCell>
                     <TableCell sx={{ minWidth: 200 }}>
                       <Typography variant="caption">
-                        {isQuotaJob(j) || !j.total_messages
-                          ? j.total_messages
-                            ? tf(
-                                "bulk",
-                                "jobProgressQuota",
-                                {
-                                  archived: j.archived_messages,
-                                  total: j.total_messages,
-                                  pct: j.progress_pct,
-                                  scanned: j.processed_messages,
-                                },
-                                "{archived}/{total} archivados ({pct}%) · {scanned} revisados"
-                              )
-                            : tf(
-                                "bulk",
-                                "jobProgressUnknown",
-                                { scanned: j.processed_messages },
-                                "{scanned} revisados"
-                              )
-                          : `${j.processed_messages}/${j.total_messages} (${j.progress_pct}%)`}
+                        {isPurgeJob(j)
+                          ? tf(
+                              "bulk",
+                              "purgeProgress",
+                              {
+                                deleted: j.processed_messages,
+                                total: j.total_messages,
+                                pct: j.progress_pct,
+                              },
+                              "{deleted}/{total} eliminados ({pct}%)"
+                            )
+                          : isQuotaJob(j) || !j.total_messages
+                            ? j.total_messages
+                              ? tf(
+                                  "bulk",
+                                  "jobProgressQuota",
+                                  {
+                                    archived: j.archived_messages,
+                                    total: j.total_messages,
+                                    pct: j.progress_pct,
+                                    scanned: j.processed_messages,
+                                  },
+                                  "{archived}/{total} archivados ({pct}%) · {scanned} revisados"
+                                )
+                              : tf(
+                                  "bulk",
+                                  "jobProgressUnknown",
+                                  { scanned: j.processed_messages },
+                                  "{scanned} revisados"
+                                )
+                            : `${j.processed_messages}/${j.total_messages} (${j.progress_pct}%)`}
                       </Typography>
                       <LinearProgress
                         variant={jobProgressIndeterminate(j) ? "indeterminate" : "determinate"}
@@ -233,11 +249,16 @@ export default function JobsPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      {tf("bulk", "jobStatsLine", {
-                        ok: j.archived_messages,
-                        skip: j.skipped_messages,
-                        err: j.failed_messages,
-                      })}
+                      {isPurgeJob(j)
+                        ? tf("bulk", "purgeStats", {
+                            deleted: j.processed_messages,
+                            errors: j.failed_messages,
+                          })
+                        : tf("bulk", "jobStatsLine", {
+                            ok: j.archived_messages,
+                            skip: j.skipped_messages,
+                            err: j.failed_messages,
+                          })}
                       <Typography variant="caption" display="block">
                         {formatBytes(j.archived_bytes)} / {formatBytes(j.total_bytes)}
                       </Typography>

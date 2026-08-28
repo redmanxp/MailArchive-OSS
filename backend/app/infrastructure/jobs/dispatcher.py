@@ -39,7 +39,7 @@ def stop_job_dispatcher() -> None:
 
 def _loop(poll_seconds: float) -> None:
     # Lazy imports: avoid circular import with application layer at module load.
-    from app.application.use_cases.accounts.bulk_archive import run_archive_job
+    from app.application.use_cases.accounts.bulk_archive import run_archive_job, run_purge_job
     from app.infrastructure.persistence.database import SessionLocal
     from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
 
@@ -51,8 +51,13 @@ def _loop(poll_seconds: float) -> None:
                 pending = repo.list_pending(limit=5)
                 for job in pending:
                     logger.info("Dispatcher picking pending job id=%s tenant=%s", job.id, job.tenant_id)
+                    target = (
+                        run_purge_job
+                        if (job.criteria or {}).get("source") == "purge_account_archive"
+                        else run_archive_job
+                    )
                     threading.Thread(
-                        target=run_archive_job,
+                        target=target,
                         args=(job.id, job.tenant_id),
                         name=f"archive-job-{job.id}",
                         daemon=True,

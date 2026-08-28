@@ -9,6 +9,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
 from typing import Any
 
 from app.config import Settings
@@ -547,7 +548,7 @@ class PurgeAccountArchiveUseCase:
         self.job_repo = job_repo
         self.schedule_repo = schedule_repo
 
-    def execute(
+    def _validate(
         self,
         *,
         tenant_id: int,
@@ -555,7 +556,7 @@ class PurgeAccountArchiveUseCase:
         role: UserRole,
         account_id: int,
         confirm: str,
-    ) -> dict:
+    ) -> Any:
         phrase = (confirm or "").strip().upper()
         if phrase not in self.CONFIRM_PHRASES:
             raise ValidationError('Escribí ELIMINAR para confirmar la purga del archivo')
@@ -567,11 +568,65 @@ class PurgeAccountArchiveUseCase:
             raise AuthorizationError("No puede purgar esta cuenta")
         if account.status != AccountStatus.UNLINKED.value:
             raise ValidationError("Desvinculá la cuenta antes de purgar el archivo")
+        return account
+
+    def validate(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        confirm: str,
+    ) -> tuple[Any, int]:
+        """Validate a purge request and return its account plus current mail count."""
+        account = self._validate(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=role,
+            account_id=account_id,
+            confirm=confirm,
+        )
+        entries = self.archived_repo.list_ids_and_paths_for_account(tenant_id, account_id)
+        return account, len(entries)
+
+    def execute(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        role: UserRole,
+        account_id: int,
+        confirm: str,
+        progress_callback: Callable[[int, int, int], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict:
+        account = self._validate(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=role,
+            account_id=account_id,
+            confirm=confirm,
+        )
 
         entries = self.archived_repo.list_ids_and_paths_for_account(tenant_id, account_id)
         mails_deleted = 0
         storage_errors = 0
         for mail_id, storage_path in entries:
+            if cancel_check is not None and cancel_check():
+                logger.info(
+                    "Purge cancelled account_id=%s after mails=%s",
+                    account_id,
+                    mails_deleted,
+                )
+                return {
+                    "id": account_id,
+                    "email": account.email,
+                    "mails_deleted": mails_deleted,
+                    "jobs_deleted": 0,
+                    "storage_errors": storage_errors,
+                    "cancelled": True,
+                }
             deleted = self.archived_repo.delete_mail(tenant_id, mail_id)
             mails_deleted += 1
             try:
@@ -586,6 +641,8 @@ class PurgeAccountArchiveUseCase:
                     mail_id,
                     storage_path,
                 )
+            if progress_callback is not None:
+                progress_callback(mails_deleted, len(entries), storage_errors)
 
         if self.schedule_repo is not None:
             self.schedule_repo.delete_for_account(tenant_id, account_id)

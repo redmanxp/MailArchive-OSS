@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Annotated
 from urllib.parse import quote
 
@@ -28,8 +29,10 @@ from app.application.use_cases.accounts.account_use_cases import (
     TestImapConnectionUseCase,
     TransferAccountUseCase,
 )
+from app.application.use_cases.accounts.bulk_archive import run_purge_job
 from app.config import Settings, get_settings
-from app.domain.exceptions import DomainError
+from app.domain.enums.jobs import ArchiveJobStatus
+from app.domain.exceptions import DomainError, ValidationError
 from app.infrastructure.persistence.database import get_db
 from app.application.use_cases.accounts.schedule_use_cases import (
     GetArchiveScheduleUseCase,
@@ -38,7 +41,7 @@ from app.application.use_cases.accounts.schedule_use_cases import (
 )
 from app.infrastructure.persistence.repositories.job_repo import SqlAlchemyArchiveJobRepository
 from app.infrastructure.persistence.repositories.schedule_repo import SqlAlchemyArchiveScheduleRepository
-from app.schemas.jobs import ArchiveSchedulePublic, ArchiveScheduleUpdate
+from app.schemas.jobs import ArchiveJobPublic, ArchiveSchedulePublic, ArchiveScheduleUpdate
 from app.infrastructure.persistence.repositories.mail_repos import (
     SqlAlchemyArchivedMailRepository,
     SqlAlchemyMailAccountRepository,
@@ -55,7 +58,6 @@ from app.schemas.accounts import (
     FolderPublic,
     HardDeleteAccountResponse,
     PurgeAccountArchiveRequest,
-    PurgeAccountArchiveResponse,
     TransferAccountRequest,
     TransferAccountResponse,
     UnlinkAccountResponse,
@@ -444,14 +446,14 @@ def reconnect_imap(
         raise map_domain_error(exc) from exc
 
 
-@router.post("/{account_id}/purge-archive", response_model=PurgeAccountArchiveResponse)
+@router.post("/{account_id}/purge-archive", response_model=ArchiveJobPublic)
 def purge_account_archive(
     account_id: int,
     body: PurgeAccountArchiveRequest,
     db: Annotated[Session, Depends(get_db)],
     ctx: Annotated[CurrentUserContext, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> PurgeAccountArchiveResponse:
+) -> ArchiveJobPublic:
     uc = PurgeAccountArchiveUseCase(
         account_repo=SqlAlchemyMailAccountRepository(db),
         archived_repo=SqlAlchemyArchivedMailRepository(db),
@@ -461,16 +463,65 @@ def purge_account_archive(
         schedule_repo=SqlAlchemyArchiveScheduleRepository(db),
     )
     try:
-        result = uc.execute(
+        account, total_messages = uc.validate(
             tenant_id=ctx.user.tenant_id,
             user_id=ctx.user.id,
             role=ctx.user.role,
             account_id=account_id,
             confirm=body.confirm,
         )
+        job_repo = SqlAlchemyArchiveJobRepository(db)
+        if job_repo.has_open_for_account(ctx.user.tenant_id, account_id):
+            raise map_domain_error(ValidationError("Ya hay un job pendiente o en curso para esta cuenta"))
+        job = job_repo.create(
+            tenant_id=ctx.user.tenant_id,
+            user_id=ctx.user.id,
+            account_id=account_id,
+            criteria={"source": "purge_account_archive"},
+            delete_after_archive=False,
+            total_messages=total_messages,
+            total_bytes=0,
+            status=ArchiveJobStatus.PENDING.value,
+        )
+        SqlAlchemyAuditLogRepository(db).add(
+            tenant_id=ctx.user.tenant_id,
+            user_id=ctx.user.id,
+            action="account.purge_job.create",
+            resource_type="archive_job",
+            resource_id=str(job.id),
+            details={"account_id": account_id, "message_count": total_messages},
+        )
+        db.commit()
+        threading.Thread(
+            target=run_purge_job,
+            args=(job.id, ctx.user.tenant_id),
+            name=f"purge-job-{job.id}",
+            daemon=True,
+        ).start()
     except DomainError as exc:
         raise map_domain_error(exc) from exc
-    return PurgeAccountArchiveResponse(**result)
+    return ArchiveJobPublic(
+        id=job.id,
+        account_id=job.account_id,
+        account_email=account.email,
+        user_id=job.user_id,
+        status=job.status,
+        criteria=job.criteria,
+        result=None,
+        delete_after_archive=job.delete_after_archive,
+        total_messages=job.total_messages,
+        processed_messages=job.processed_messages,
+        archived_messages=job.archived_messages,
+        skipped_messages=job.skipped_messages,
+        failed_messages=job.failed_messages,
+        total_bytes=job.total_bytes,
+        archived_bytes=job.archived_bytes,
+        error_message=job.error_message,
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        finished_at=job.finished_at.isoformat() if job.finished_at else None,
+        created_at=job.created_at.isoformat() if job.created_at else None,
+        progress_pct=0,
+    )
 
 
 @router.post("/{account_id}/hard-delete", response_model=HardDeleteAccountResponse)

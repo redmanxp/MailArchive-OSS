@@ -14,6 +14,7 @@ from app.application.use_cases.accounts.bulk_archive import (
     RetryArchiveJobUseCase,
     SimulateBulkArchiveUseCase,
     run_archive_job,
+    run_purge_job,
 )
 from app.config import Settings, get_settings
 from app.domain.enums.jobs import ArchiveJobStatus
@@ -274,8 +275,16 @@ def retry_job(
         raise map_domain_error(exc) from exc
     db.commit()
     tenant_id = ctx.user.tenant_id
+    retry_job_row = job_repo.get(tenant_id, job_id)
+    if retry_job_row is None:
+        raise map_domain_error(NotFoundError("Job no encontrado"))
+    target = (
+        run_purge_job
+        if (retry_job_row.criteria or {}).get("source") == "purge_account_archive"
+        else run_archive_job
+    )
     threading.Thread(
-        target=run_archive_job,
+        target=target,
         args=(job_id, tenant_id),
         name=f"archive-job-retry-{job_id}",
         daemon=True,

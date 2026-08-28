@@ -47,7 +47,7 @@ Menú a la izquierda:
    - **IMAP** genérico: host, puerto, SSL, usuario y contraseña; podés **Probar conexión** antes de guardar. La contraseña se cifra en reposo.
 3. Podés vincular **varias** cuentas (M365 y/o IMAP).
 4. Usuarios normales solo ven **sus** cuentas. Admin / Supervisor ven todas las del tenant (con dueño).
-5. Pestañas **Activas** / **Desvinculadas**. En desvinculadas podés reconectar, purgar archivo (confirmación `ELIMINAR`) o borrar el vínculo si no hay archivados.
+5. Pestañas **Activas** / **Desvinculadas**. En desvinculadas podés reconectar, purgar archivo (confirmación `ELIMINAR`) o borrar el vínculo si no hay archivados. La purga se ejecuta en segundo plano; podés seguirla en **Procesos**.
 6. Icono de **reloj**: archivo programado **por cuenta** (no borra del proveedor). En el diálogo ves estado, última/próxima corrida y watermarks.
    - **Máximo por corrida** (1–2000, predeterminado 500): cuántos correos **nuevos** baja cada job. Los ya archivados no cuentan. **0 no descarga todo**.
    - **Archivar buzón histórico**: además de lo nuevo, cada corrida sigue hacia atrás hasta llenar ese cupo o hasta que no quede nada. El historial completo se completa en varias corridas (o con “Ejecutar ahora”).

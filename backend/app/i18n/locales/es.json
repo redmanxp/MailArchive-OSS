@@ -274,7 +274,8 @@
       "purgeConfirm": "Purgar definitivamente",
       "purgeConfirmLabel": "Escribí ELIMINAR",
       "purgeConfirmHint": "Confirmación: escribí exactamente ELIMINAR",
-      "purged": "Purgados {n} correo(s) de {email}; vínculo eliminado"
+      "purged": "Purgados {n} correo(s) de {email}; vínculo eliminado",
+      "purgeQueued": "Purga de {email} iniciada. Revisá el progreso en Procesos."
     },
     "archive": {
       "title": "Archivar",
@@ -338,6 +339,7 @@
       "jobDetailTitle": "Job #{id}",
       "jobSource": "Origen",
       "sourceScheduled": "Archivo programado (incremental)",
+      "sourcePurge": "Purga de archivo de cuenta",
       "sourceManual": "Archivado masivo manual",
       "started": "Inicio",
       "finished": "Fin",
@@ -353,11 +355,13 @@
       "progress": "Progreso",
       "jobProgressQuota": "{archived}/{total} archivados ({pct}%) · {scanned} revisados",
       "jobProgressUnknown": "{scanned} revisados",
+      "purgeProgress": "{deleted}/{total} eliminados ({pct}%)",
       "archived": "Archivados",
       "created": "Creado",
       "actions": "Acciones",
       "stats": "ok·skip·err",
       "jobStatsLine": "{ok} ok · {skip} skip · {err} err",
+      "purgeStats": "{deleted} eliminados · {errors} errores de almacenamiento",
       "noJobs": "Sin procesos",
       "noJobsHint": "No hay procesos activos ni recientes.",
       "retry": "Reintentar",

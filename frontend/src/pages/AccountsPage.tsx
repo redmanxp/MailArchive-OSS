@@ -351,16 +351,11 @@ export default function AccountsPage() {
     setError(null);
     try {
       const r = await purgeAccountArchive(purgeTarget.id, purgeConfirm.trim());
-      setInfoSeverity(r.storage_errors > 0 ? "warning" : "success");
-      setInfo(
-        tf("accounts", "purged", {
-          email: r.email,
-          n: String(r.mails_deleted),
-        })
-      );
+      setInfoSeverity("success");
+      setInfo(tf("accounts", "purgeQueued", { email: purgeTarget.email }));
       setPurgeTarget(null);
       setPurgeConfirm("");
-      await refresh();
+      navigate("/app/jobs", { replace: true, state: { startedJobId: r.id } });
     } catch (err: unknown) {
       setError(
         String(

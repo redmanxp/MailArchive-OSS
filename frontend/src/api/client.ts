@@ -607,13 +607,7 @@ export async function hardDeleteAccount(accountId: number) {
 }
 
 export async function purgeAccountArchive(accountId: number, confirm: string) {
-  const { data } = await api.post<{
-    id: number;
-    email: string;
-    mails_deleted: number;
-    jobs_deleted: number;
-    storage_errors: number;
-  }>(`/api/v1/accounts/${accountId}/purge-archive`, { confirm });
+  const { data } = await api.post<ArchiveJob>(`/api/v1/accounts/${accountId}/purge-archive`, { confirm });
   return data;
 }
 

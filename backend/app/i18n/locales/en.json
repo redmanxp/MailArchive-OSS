@@ -274,7 +274,8 @@
       "purgeConfirm": "Purge permanently",
       "purgeConfirmLabel": "Type ELIMINAR",
       "purgeConfirmHint": "Confirmation: type ELIMINAR exactly",
-      "purged": "Purged {n} message(s) for {email}; link removed"
+      "purged": "Purged {n} message(s) for {email}; link removed",
+      "purgeQueued": "Purge for {email} started. Check progress under Jobs."
     },
     "archive": {
       "title": "Archive",
@@ -338,6 +339,7 @@
       "jobDetailTitle": "Job #{id}",
       "jobSource": "Source",
       "sourceScheduled": "Scheduled archive (incremental)",
+      "sourcePurge": "Account archive purge",
       "sourceManual": "Manual bulk archive",
       "started": "Started",
       "finished": "Finished",
@@ -353,11 +355,13 @@
       "progress": "Progress",
       "jobProgressQuota": "{archived}/{total} archived ({pct}%) · {scanned} scanned",
       "jobProgressUnknown": "{scanned} scanned",
+      "purgeProgress": "{deleted}/{total} deleted ({pct}%)",
       "archived": "Archived",
       "created": "Created",
       "actions": "Actions",
       "stats": "ok·skip·err",
       "jobStatsLine": "{ok} ok · {skip} skip · {err} err",
+      "purgeStats": "{deleted} deleted · {errors} storage errors",
       "noJobs": "No jobs",
       "noJobsHint": "No active or recent jobs.",
       "retry": "Retry",

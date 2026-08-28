@@ -7,7 +7,10 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-from app.application.use_cases.accounts.account_use_cases import ArchiveSingleMessageUseCase
+from app.application.use_cases.accounts.account_use_cases import (
+    ArchiveSingleMessageUseCase,
+    PurgeAccountArchiveUseCase,
+)
 from app.config import Settings, get_settings
 from app.domain.enums.jobs import ArchiveJobStatus
 from app.domain.enums.providers import MailProviderType
@@ -474,6 +477,136 @@ class StartBulkArchiveUseCase:
             "total_bytes": job.total_bytes,
             "delete_after_archive": job.delete_after_archive,
         }
+
+
+def run_purge_job(job_id: int, tenant_id: int) -> None:
+    """Background worker: purge an account archive without holding an HTTP request."""
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        job_repo = SqlAlchemyArchiveJobRepository(db)
+        job = job_repo.try_claim(tenant_id, job_id)
+        if job is None:
+            logger.info("Purge job id=%s tenant=%s not claimed (skip)", job_id, tenant_id)
+            return
+        commit_with_retry(db)
+
+        account_repo = SqlAlchemyMailAccountRepository(db)
+        account = account_repo.get(tenant_id, job.account_id)
+        if account is None:
+            write_with_retry(
+                db,
+                lambda: job_repo.update_progress(
+                    tenant_id,
+                    job_id,
+                    status=ArchiveJobStatus.FAILED.value,
+                    error_message="Cuenta no encontrada",
+                    finished=True,
+                ),
+            )
+            return
+
+        archived_repo = SqlAlchemyArchivedMailRepository(db)
+        audit_repo = SqlAlchemyAuditLogRepository(db)
+        storage = build_mail_storage(settings)
+        from app.infrastructure.persistence.repositories.schedule_repo import (
+            SqlAlchemyArchiveScheduleRepository,
+        )
+
+        uc = PurgeAccountArchiveUseCase(
+            account_repo=account_repo,
+            archived_repo=archived_repo,
+            audit_repo=audit_repo,
+            storage=storage,
+            job_repo=job_repo,
+            schedule_repo=SqlAlchemyArchiveScheduleRepository(db),
+        )
+
+        def _progress(processed: int, _total: int, storage_errors: int) -> None:
+            def update() -> None:
+                job_repo.update_progress(
+                    tenant_id,
+                    job_id,
+                    processed=processed,
+                    failed=storage_errors,
+                )
+
+            write_with_retry(db, update)
+
+        result = uc.execute(
+            tenant_id=tenant_id,
+            user_id=job.user_id,
+            role=UserRole.ADMIN,
+            account_id=job.account_id,
+            confirm="ELIMINAR",
+            progress_callback=_progress,
+            cancel_check=lambda: _is_cancelled(job_id),
+        )
+        if result.get("cancelled"):
+            def mark_cancelled() -> None:
+                job_repo.update_progress(
+                    tenant_id,
+                    job_id,
+                    status=ArchiveJobStatus.CANCELLED.value,
+                    processed=result["mails_deleted"],
+                    failed=result["storage_errors"],
+                    finished=True,
+                )
+                job_repo.set_result(
+                    tenant_id,
+                    job_id,
+                    {
+                        "note": "cancelled",
+                        "deleted": result["mails_deleted"],
+                        "storage_errors": result["storage_errors"],
+                    },
+                )
+
+            write_with_retry(db, mark_cancelled)
+            logger.info(
+                "Purge job %s cancelled account=%s deleted=%s",
+                job_id,
+                job.account_id,
+                result["mails_deleted"],
+            )
+            return
+
+        # The use case removes the account and this job in its final transaction.
+        commit_with_retry(db)
+        logger.info(
+            "Purge job %s done account=%s deleted=%s storage_errors=%s",
+            job_id,
+            job.account_id,
+            result["mails_deleted"],
+            result["storage_errors"],
+        )
+    except Exception as exc:
+        logger.exception("Purge job %s crashed", job_id)
+        try:
+            db.rollback()
+            current = SqlAlchemyArchiveJobRepository(db).get(tenant_id, job_id)
+            if current is not None:
+                def mark_failed() -> None:
+                    repo = SqlAlchemyArchiveJobRepository(db)
+                    repo.update_progress(
+                        tenant_id,
+                        job_id,
+                        status=ArchiveJobStatus.FAILED.value,
+                        error_message=str(exc)[:1000],
+                        finished=True,
+                    )
+                    repo.set_result(
+                        tenant_id,
+                        job_id,
+                        {"note": "failed", "crash": str(exc)[:500]},
+                    )
+
+                write_with_retry(db, mark_failed)
+        except Exception:
+            logger.exception("Could not mark purge job %s failed", job_id)
+    finally:
+        _clear_cancel(job_id)
+        db.close()
 
 
 def run_archive_job(job_id: int, tenant_id: int) -> None:
